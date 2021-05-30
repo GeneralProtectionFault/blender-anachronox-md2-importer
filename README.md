@@ -5,6 +5,8 @@ natively supported by [Blender](https://www.blender.org/) for
 a decade now. Please note that this add-on is still work
 in progress.
 
+![Editor](imgs/editor.jpg)
+
 ## What can this importer (!) do so far?
 
 - load an MD2 object to Blender
