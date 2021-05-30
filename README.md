@@ -1,4 +1,4 @@
-# Quake 2 MD2 import add-on for Blender 2.8x
+# Anachronox MD2 import add-on for Blender 2.8x
 
 This add-on allows importing .md2 model files. This hasn't been
 natively supported by [Blender](https://www.blender.org/) for
