@@ -10,6 +10,7 @@ bl_info = {
 import sys
 from dataclasses import dataclass
 import struct
+from pathlib import Path
 from typing import List
 """
 This part is used to load an md2 file into a MD2 dataclass object
@@ -265,7 +266,7 @@ from PIL import Image, ImageFile
 import os  # for checking if skin pathes exist
 
 
-def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_skin_path):
+def blender_load_md2(md2_path, displayed_name):
 	"""
 	This function uses the information from a md2 dataclass into a blender object.
 	This will consist of an animated mesh and its material (which is not much more than the texture.
@@ -287,41 +288,30 @@ def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_s
 	
 	
 	""" Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
-	check for any image file with that path disregarding the file extension. For a given custom path, it is checked
-	whether it (apparently) is an absolute or relative (to the MD2) path.
+	check for any image file with that path disregarding the file extension.
 	"""
-	""" get absolute skin path based on input / the one stored inside of the MD2 """
+	""" get the skin path stored inside of the MD2 """
 	# check box must be checked (alternatively it could be checked if the input field was empty or not ...)
-	if use_custom_md2_skin:
-		# an absolute path is recognized by usage of '/' (obviously not perfect detection of an absolute path)
-		if "/" in custom_md2_skin_path:
-			skin_path = custom_md2_skin_path
-		else:
-			# take everything before last '/' of MD2 path, add '/' and path of skin in same directory
-			custom_abs_path = "/".join(md2_path.split("/")[:-1])+"/"+custom_md2_skin_path
-			print(custom_abs_path)
-			skin_path = custom_abs_path
-	else:
-		print("stored path:", my_object.skin_names) # unchanged path or pathes stored in the MD2
-		# strings are always stored as 64 bytes, so unused bytes are set to '\x00'
-		first_stored_path = my_object.skin_names[0].rstrip("\x00")
+	skin_paths = []
+	for index, skin_name in enumerate(my_object.skin_names):
+		path = my_object.skin_names[index].rstrip("\x00")
 		# only first stored path is used since Digital Paintball 2 only uses that one
-		first_stored_path = first_stored_path.split("/")[-1]
-		print(first_stored_path)
+		path = path.split("/")[-1]
+		print(path)
 		# absolute path is formed by using the given md2 object path
-		absolute_first_stored_path = "/".join(md2_path.split("/")[:-1])+"/"+first_stored_path
-		print(absolute_first_stored_path)
-		skin_path = absolute_first_stored_path
-	
-	""" Look for existing file of given name and supported image format """
-	supported_image_formats = [".png", ".jpg", ".jpeg", ".tga",".pcx"] # Order doesn't match DP2 image order
-	skin_path_unextended = os.path.splitext(skin_path)[0] # remove extension (last one)
-	print(skin_path_unextended)
-	for format in supported_image_formats:
-		if os.path.isfile(skin_path_unextended+format):
-			skin_path = skin_path_unextended+format
-			break
-	print("used skin path", skin_path)
+		absolute_path = "/".join(md2_path.split("/")[:-1])+"/"+path
+		print(absolute_path)
+		skin_path = absolute_path
+		""" Look for existing file of given name and supported image format """
+		supported_image_formats = [".png", ".jpg", ".jpeg", ".tga", ".pcx", ".bmp"] # Order doesn't match DP2 image order
+		skin_path_unextended = os.path.splitext(skin_path)[0] # remove extension (last one)
+		print(skin_path_unextended)
+		for format in supported_image_formats:
+			if os.path.isfile(skin_path_unextended+format):
+				skin_path = skin_path_unextended+format
+				break
+		print("used skin path", skin_path)
+		skin_paths.append(skin_path)
 
 	""" Loads required information for mesh generation and UV mapping from the .md2 file"""
 	# Gets name to give to the object and mesh in the outliner
@@ -338,7 +328,6 @@ def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_s
 	tris = ([x.vertexIndices for x in my_object.triangles])
 	# uv coordinates (in q2 terms st coordinates) for projecting the skin on the model's faces
 	# blender flips images upside down when loading so v = 1-t for blender imported images
-	uvs_pcx = ([(x.s, x.t) for x in my_object.texture_coordinates]) 
 	uvs_others = ([(x.s, 1-x.t) for x in my_object.texture_coordinates]) 
 	# blender uv coordinate system originates at lower left
 
@@ -353,25 +342,25 @@ def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_s
 	mesh.from_pydata(all_verts[0], [], tris) 
 
 	""" UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
-	uv_layer=(mesh.uv_layers.new())
-	mesh.uv_layers.active = uv_layer
-
+	uv_layers = []
+	for index, skin_path in enumerate(skin_paths):
+		uv_layer=(mesh.uv_layers.new())
+		uv_layers.append(uv_layer)
+	mesh.uv_layers.active = uv_layers[0]
+	uv_layer = uv_layers[0]
 	# add uv coordinates to each polygon (here: triangle since md2 only stores vertices and triangles)
 	# note: faces and vertices are stored exactly in the order they were added
 	for face_idx, face in enumerate(mesh.polygons):
+		mesh.polygons[face_idx].use_smooth = True
 		for idx, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
-			if skin_path.endswith(".pcx"):
-				print("PCX LOADED")
-				uv_layer.data[loop_idx].uv = uvs_pcx[my_object.triangles[face_idx].textureIndices[idx]]
-			else:
-				uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
+			uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
 				
 	""" Create animation for animated models: set keyframe for each vertex in each frame individually """
 	# Create keyframes from first to last frame
 	for i in range(my_object.header.num_frames):
 		for idx,v in enumerate(obj.data.vertices):
 			obj.data.vertices[idx].co = all_verts[i][idx]
-			v.keyframe_insert('co', frame=i*3)  # parameter index=2 restricts keyframe to dimension
+			v.keyframe_insert('co', frame=i*2)  # parameter index=2 restricts keyframe to dimension
 
 	# insert first keyframe after last one to yield cyclic animation
 	# for idx,v in enumerate(obj.data.vertices):
@@ -383,34 +372,20 @@ def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_s
 	load non-empty .pcx files
 	idea/TODO: Write an own pcx loader from scratch ... """
 	# Creating material and corresponding notes (see Shading tab)
-	mat = bpy.data.materials.new(name="md2_material")
-	mat.use_nodes = True
-	bsdf = mat.node_tree.nodes["Principled BSDF"]
-	bsdf.inputs['Specular'].default_value = 0
-	texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
-
-	# if only a pcx version of the desired skin exists, load it via PIL
-	# and copy pixels into the materials texture
-	# otherwise use blender internal image loader (supporting .png, .jpg and .tga)
-	if skin_path.endswith(".pcx"):
-		skin = Image.open(skin_path)
-		skin.load()
-		skin = skin.convert("RGBA")
-		skin_rgba = list(skin.getdata())
-		print("important", skin_rgba[:40])
-		print("path:", skin_path)
-		texImage.image = bpy.data.images.new("MyImage", width=skin.size[0], height=skin.size[1])
-		texImage.image.pixels = [y for x in skin_rgba for y in x]
-	else:
-		texImage.image = bpy.data.images.load(skin_path)
-	# again copy and paste
-	mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-
-	# Assign it to object
-	if obj.data.materials:
-		obj.data.materials[0] = mat
-	else:
+	for index, skin_path in enumerate(skin_paths):
+		material_name = "md2_material_" + str(index)
+		mat = bpy.data.materials.new(name=material_name)
+		mat.use_nodes = True
+		bsdf = mat.node_tree.nodes["Principled BSDF"]
+		bsdf.inputs['Specular'].default_value = 0
+		texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
+		path = Path(skin_path)
+		if path.exists():
+			texImage.image = bpy.data.images.load(skin_paths[index])
+			# again copy and paste
+			mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
 		obj.data.materials.append(mat)
+
 	print("YAY NO ERRORS!!")
 	return {'FINISHED'} # no idea, seems to be necessary for the UI
 		
@@ -449,18 +424,8 @@ class ImportSomeData(Operator, ImportHelper):
 										default="",
 										maxlen=1024)
 	
-	use_custom_skin: BoolProperty(
-		name="Load custom skin: ",
-		description="To load a skin from a path different to the one stored in the .md2.",
-		default=False,
-	)
-	custom_skin_path: bpy.props.StringProperty(name="Optional: skin path",
-										description="If load custom skin checked: path to skin to load.",
-										default="",
-										maxlen=1024)
-
 	def execute(self, context):
-		return blender_load_md2(self.filepath, self.displayed_name, self.use_custom_skin, self.custom_skin_path)
+		return blender_load_md2(self.filepath, self.displayed_name)
 
 
 # Only needed if you want to add into a dynamic menu
