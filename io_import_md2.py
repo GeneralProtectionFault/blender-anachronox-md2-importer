@@ -371,12 +371,12 @@ def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_s
 	for i in range(my_object.header.num_frames):
 		for idx,v in enumerate(obj.data.vertices):
 			obj.data.vertices[idx].co = all_verts[i][idx]
-			v.keyframe_insert('co', frame=i*10)  # parameter index=2 restricts keyframe to dimension
+			v.keyframe_insert('co', frame=i*3)  # parameter index=2 restricts keyframe to dimension
 
 	# insert first keyframe after last one to yield cyclic animation
-	for idx,v in enumerate(obj.data.vertices):
-		obj.data.vertices[idx].co = all_verts[0][idx]
-		v.keyframe_insert('co', frame=60)
+	# for idx,v in enumerate(obj.data.vertices):
+	# 	obj.data.vertices[idx].co = all_verts[0][idx]
+	# 	v.keyframe_insert('co', frame=60)
 
 	""" Assign skin to mesh: Create material (barely understood copy and paste again) and set the image. 
 	Might work by manually setting the textures pixels to the pixels of a PIL.Image if it would actually
@@ -386,6 +386,7 @@ def blender_load_md2(md2_path, displayed_name, use_custom_md2_skin, custom_md2_s
 	mat = bpy.data.materials.new(name="md2_material")
 	mat.use_nodes = True
 	bsdf = mat.node_tree.nodes["Principled BSDF"]
+	bsdf.inputs['Specular'].default_value = 0
 	texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
 
 	# if only a pcx version of the desired skin exists, load it via PIL
