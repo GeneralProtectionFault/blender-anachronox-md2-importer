@@ -1,4 +1,4 @@
-# Anachronox MD2 import add-on for Blender 2.8x
+# Anachronox MD2 import add-on for Blender 3.x
 
 ## Based on:
 https://github.com/lennart-g/blender-md2-importer
