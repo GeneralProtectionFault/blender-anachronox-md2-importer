@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Experimental MD2 Importer",
+    "name": "Anachronox: Experimental MD2 Importer",
     "author": "Lennart G",
     "location": "File > Import > Anachronox (.md2)",
     "version": (0, 1, 0),
