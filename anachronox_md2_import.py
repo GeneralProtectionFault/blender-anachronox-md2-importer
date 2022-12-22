@@ -1,8 +1,8 @@
 bl_info = {
     "name": "Anachronox: Experimental MD2 Importer",
-    "author": "Lennart G",
+    "author": "Lennart G, Alpaca, Holonet, Creaper",
     "location": "File > Import > Anachronox (.md2)",
-    "version": (0, 1, 0),
+    "version": (0, 1, 3),
     "blender": (2, 80, 0),
     "category": "Import-Export"
 }
@@ -174,7 +174,7 @@ def load_frames(frames_bytes, header):
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12]))
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24]))
         name = frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
-        print(name)
+        print("name", name)
         verts = list()
         for v in range(header.num_xyz):
             #print(v)
@@ -280,12 +280,12 @@ def blender_load_md2(md2_path, displayed_name):
     """
     """ Create MD2 dataclass object """
     # ImageFile.LOAD_TRUNCATED_IMAGES = True # Necessary for loading jpgs with PIL
-
+    print("md2_path ", md2_path)
     object_path = md2_path  # Kept for testing purposes
     # A dataclass containing all information stored in a .md2 file
     my_object = load_file(object_path)
     
-    
+
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
     """
@@ -296,29 +296,35 @@ def blender_load_md2(md2_path, displayed_name):
         path = my_object.skin_names[index].rstrip("\x00")
         # only first stored path is used since Digital Paintball 2 only uses that one
         path = path.split("/")[-1]
-        print(path)
+        print("Path", path)
         # absolute path is formed by using the given md2 object path
         absolute_path = "/".join(md2_path.split("/")[:-1])+"/"+path
-        print(absolute_path)
+        print("Absolute Path", absolute_path)
         skin_path = absolute_path
         """ Look for existing file of given name and supported image format """
-        supported_image_formats = [".png", ".jpg", ".jpeg", ".tga", ".pcx", ".bmp"] # Order doesn't match DP2 image order
+        supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
         skin_path_unextended = os.path.splitext(skin_path)[0] # remove extension (last one)
-        print(skin_path_unextended)
+        print("skin path unextended", skin_path_unextended)
         for format in supported_image_formats:
-            if os.path.isfile(skin_path_unextended+format):
-                skin_path = skin_path_unextended+format
+            #      Added to support autoloading textures - Creaper
+            absolute_object_path = os.path.splitext(object_path)[0] # remove extension (last one)
+            if os.path.isfile(absolute_object_path+format):
+                skin_path = absolute_object_path+format
                 break
-        print("used skin path", skin_path)
+        print("used skin path", absolute_object_path)
         skin_paths.append(skin_path)
-
+        
     """ Loads required information for mesh generation and UV mapping from the .md2 file"""
     # Gets name to give to the object and mesh in the outliner
     if not displayed_name:
-        object_name = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
-        print(object_name)
+        #      Added to support autoloading textures - Creaper
+        #    object_name = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
+        #   
+        object_name = os.path.basename(md2_path).split('/')[-1]
+        object_name = os.path.splitext(object_name)[0] # remove extension (last one)
+        print("object name", object_name)
     else:
-        print(displayed_name)
+        print("displayed name", displayed_name)
         object_name = [displayed_name]
 
     # List of vertices [x,y,z] for all frames extracted from the md2 object
@@ -331,7 +337,7 @@ def blender_load_md2(md2_path, displayed_name):
     # blender uv coordinate system originates at lower left
 
     """ Lots of code (copy and pasted) that creates a mesh and adds it to the scene collection/outlines """
-    mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from list
+    mesh = bpy.data.meshes.new(object_name)  # add the new mesh, * extracts string from list
     obj = bpy.data.objects.new(mesh.name, mesh)
     col = bpy.data.collections.get("Collection")
     col.objects.link(obj)
@@ -372,7 +378,11 @@ def blender_load_md2(md2_path, displayed_name):
     idea/TODO: Write an own pcx loader from scratch ... """
     # Creating material and corresponding notes (see Shading tab)
     for index, skin_path in enumerate(skin_paths):
-        material_name = "md2_material_" + str(index)
+        #        material_name = "md2_material_" + str(index)
+        #
+        # Changed texture name to be same as filename proceeded with 'M_'
+        material_name = "M_" + skin_path_unextended.split("/")[-1]
+        print("material name", material_name)
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
