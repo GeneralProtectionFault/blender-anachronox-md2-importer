@@ -8,7 +8,7 @@ bl_info = {
 }
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import struct
 from pathlib import Path
 from typing import List
@@ -210,6 +210,10 @@ def load_header(file_bytes):
         print(f"Error: File type is not MD2. Ident or version not matching")
         print(f'Ident: {file_bytes[:4].decode("ascii", "ignore")} should be "IDP2"')
         print(f"Version: {header.version} should be 15")
+
+    for field in fields(header):
+        print(field.name, getattr(header, field.name))
+
     return header
 
 
