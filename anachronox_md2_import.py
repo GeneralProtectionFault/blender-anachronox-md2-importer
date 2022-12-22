@@ -43,8 +43,8 @@ class frame_t:  # 40 + num_xyz*4 bytes
 @dataclass
 class md2_t:
     ident: int              # magic number. must be equal to "IDP2" or 844121161 as int
-    version: int            # md2 version. must be equal to 8
-    resolution: int
+    version: int            # md2 version. must be equal to 15
+    resolution: int         # Vertex resolution flag 0=3, 1=4, 2=6
 
     skinwidth: int          # width of the texture
     skinheight: int         # height of the texture
@@ -174,7 +174,7 @@ def load_frames(frames_bytes, header):
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12]))
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24]))
         name = frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
-        print("name", name)
+        print("name: ", name)
         verts = list()
         for v in range(header.num_xyz):
             #print(v)
@@ -280,7 +280,7 @@ def blender_load_md2(md2_path, displayed_name):
     """
     """ Create MD2 dataclass object """
     # ImageFile.LOAD_TRUNCATED_IMAGES = True # Necessary for loading jpgs with PIL
-    print("md2_path ", md2_path)
+    print("md2_path: ", md2_path)
     object_path = md2_path  # Kept for testing purposes
     # A dataclass containing all information stored in a .md2 file
     my_object = load_file(object_path)
@@ -296,22 +296,22 @@ def blender_load_md2(md2_path, displayed_name):
         path = my_object.skin_names[index].rstrip("\x00")
         # only first stored path is used since Digital Paintball 2 only uses that one
         path = path.split("/")[-1]
-        print("Path", path)
+        print("Path: ", path)
         # absolute path is formed by using the given md2 object path
         absolute_path = "/".join(md2_path.split("/")[:-1])+"/"+path
-        print("Absolute Path", absolute_path)
+        print("Absolute Path: ", absolute_path)
         skin_path = absolute_path
         """ Look for existing file of given name and supported image format """
         supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
         skin_path_unextended = os.path.splitext(skin_path)[0] # remove extension (last one)
-        print("skin path unextended", skin_path_unextended)
+        print("skin path unextended: ", skin_path_unextended)
         for format in supported_image_formats:
             #      Added to support autoloading textures - Creaper
             absolute_object_path = os.path.splitext(object_path)[0] # remove extension (last one)
             if os.path.isfile(absolute_object_path+format):
                 skin_path = absolute_object_path+format
                 break
-        print("used skin path", absolute_object_path)
+        print("used skin path: ", absolute_object_path)
         skin_paths.append(skin_path)
         
     """ Loads required information for mesh generation and UV mapping from the .md2 file"""
@@ -322,9 +322,9 @@ def blender_load_md2(md2_path, displayed_name):
         #   
         object_name = os.path.basename(md2_path).split('/')[-1]
         object_name = os.path.splitext(object_name)[0] # remove extension (last one)
-        print("object name", object_name)
+        print("object name: ", object_name)
     else:
-        print("displayed name", displayed_name)
+        print("displayed name: ", displayed_name)
         object_name = [displayed_name]
 
     # List of vertices [x,y,z] for all frames extracted from the md2 object
@@ -382,7 +382,7 @@ def blender_load_md2(md2_path, displayed_name):
         #
         # Changed texture name to be same as filename proceeded with 'M_'
         material_name = "M_" + skin_path_unextended.split("/")[-1]
-        print("material name", material_name)
+        print("material name: ", material_name)
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
