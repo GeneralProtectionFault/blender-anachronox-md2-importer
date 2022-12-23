@@ -248,11 +248,23 @@ def load_file(path):
     # print(skin_names)
     # print(triangles)
     # print(frames)
-    # print(texture_coordinates)
+    print("texture coords ")
+    print(texture_coordinates)
+    # UV coordinates not correctly using 0,1 space, so I put in this hack to fix it - Creaper
+    header.skinwidth_adjusted = header.skinwidth-2
+    header.skinheight_adjusted = header.skinheight-2
     for i in range(len(texture_coordinates)):
-        texture_coordinates[i].s = texture_coordinates[i].s/header.skinwidth
-        texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight
-    # print(texture_coordinates)
+        #texture_coordinates[i].s = texture_coordinates[i].s+2
+        print("texture_coordinates[i].s ")
+        print(texture_coordinates[i].s)
+        print("skin width ")
+        print(header.skinwidth)
+        texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted
+        texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted
+        print("texture_coordinates[i].s after ")
+        print(texture_coordinates[i].s)
+    print("texture coords ")
+    print(texture_coordinates)
     # print(header.num_xyz)
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
@@ -310,7 +322,7 @@ def blender_load_md2(md2_path, displayed_name):
         skin_path_unextended = os.path.splitext(skin_path)[0] # remove extension (last one)
         print("skin path unextended: ", skin_path_unextended)
         for format in supported_image_formats:
-            #      Added to support autoloading textures - Creaper
+        #      Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
             absolute_object_path = os.path.splitext(object_path)[0] # remove extension (last one)
             if os.path.isfile(absolute_object_path+format):
                 skin_path = absolute_object_path+format
@@ -321,15 +333,19 @@ def blender_load_md2(md2_path, displayed_name):
     """ Loads required information for mesh generation and UV mapping from the .md2 file"""
     # Gets name to give to the object and mesh in the outliner
     if not displayed_name:
-        #      Added to support autoloading textures - Creaper
+        #      Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
         #    object_name = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
         #   
         object_name = os.path.basename(md2_path).split('/')[-1]
         object_name = os.path.splitext(object_name)[0] # remove extension (last one)
         print("object name: ", object_name)
+        mesh = bpy.data.meshes.new(object_name)  # add the new mesh via filename
+
     else:
         print("displayed name: ", displayed_name)
         object_name = [displayed_name]
+        mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from Display Name input list
+
 
     # List of vertices [x,y,z] for all frames extracted from the md2 object
     all_verts = [[x.v for x in my_object.frames[y].verts] for y in range(my_object.header.num_frames)]
@@ -341,7 +357,6 @@ def blender_load_md2(md2_path, displayed_name):
     # blender uv coordinate system originates at lower left
 
     """ Lots of code (copy and pasted) that creates a mesh and adds it to the scene collection/outlines """
-    mesh = bpy.data.meshes.new(object_name)  # add the new mesh, * extracts string from list
     obj = bpy.data.objects.new(mesh.name, mesh)
     col = bpy.data.collections.get("Collection")
     col.objects.link(obj)
