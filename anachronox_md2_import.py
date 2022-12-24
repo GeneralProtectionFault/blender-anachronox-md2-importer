@@ -174,7 +174,7 @@ def load_frames(frames_bytes, header):
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12]))
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24]))
         name = frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
-        print("name: ", name)
+        #print("name: ", name)
         verts = list()
         for v in range(header.num_xyz):
             #print(v)
@@ -225,8 +225,21 @@ def load_texture_coordinates(texture_coordinate_bytes, header):
     :return: list of texture coordinate dataclass objects
     """
     texture_coordinates = list()
+    print("\nAppending texture coordinates to list...")
+    print(f"texture_coordinate_bytes array size: {len(texture_coordinate_bytes)}\n")
+
+    # UNCOMMENT to show each byte value on a new line (overkill)
+    #for item in texture_coordinate_bytes:
+    #    print(item)
+
     for i in range(header.num_st):
-        texture_coordinates.append(textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4])))
+        coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
+
+        # UNCOMMENT these 2 lines to show the actual value of 4*i and 4*i+4 for each coordinate, and the resulting coordinate
+        # print(f"Array index range: {4*i}, {4*i+4}")
+        # print(f"Current coordinate: {coordinate}")
+        
+        texture_coordinates.append(coordinate)
     return texture_coordinates
 
 
@@ -248,24 +261,24 @@ def load_file(path):
     # print(skin_names)
     # print(triangles)
     # print(frames)
-    print("texture coords ")
-    print(texture_coordinates)
+    #print("texture coords ")
+    #print(texture_coordinates)
     # UV coordinates not correctly using 0,1 space, so I put in this hack to fix it - Creaper
     header.skinwidth_adjusted = header.skinwidth-2
     header.skinheight_adjusted = header.skinheight-2
     for i in range(len(texture_coordinates)):
         #texture_coordinates[i].s = texture_coordinates[i].s+2
-        print("texture_coordinates[i].s ")
-        print(texture_coordinates[i].s)
-        print("skin width ")
-        print(header.skinwidth)
+       # print("texture_coordinates[i].s ")
+       # print(texture_coordinates[i].s)
+       # print("skin width ")
+       # print(header.skinwidth)
         texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted
         texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted
-        print("texture_coordinates[i].s after ")
-        print(texture_coordinates[i].s)
-    print("texture coords ")
-    print(texture_coordinates)
-    # print(header.num_xyz)
+       # print("texture_coordinates[i].s after ")
+       # print(texture_coordinates[i].s)
+       # print("texture coords ")
+       # print(texture_coordinates)
+       # print(header.num_xyz)
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
             frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0]*frames[i_frame].scale.x+frames[i_frame].translate.x
@@ -297,9 +310,14 @@ def blender_load_md2(md2_path, displayed_name):
     """ Create MD2 dataclass object """
     # ImageFile.LOAD_TRUNCATED_IMAGES = True # Necessary for loading jpgs with PIL
     print("md2_path: ", md2_path)
-    object_path = md2_path  # Kept for testing purposes
+    #object_path = md2_path  # Kept for testing purposes
+    model_path = '\\'.join(md2_path.split('\\')[0:-1])+"\\"
+    print("Model Path ", model_path)
+    model_filename = "\\".join(md2_path.split("\\")[-1:])
+    print("Model Filename ", model_filename)
+
     # A dataclass containing all information stored in a .md2 file
-    my_object = load_file(object_path)
+    my_object = load_file(md2_path)
     
 
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
@@ -307,42 +325,36 @@ def blender_load_md2(md2_path, displayed_name):
     """
     """ get the skin path stored inside of the MD2 """
     # check box must be checked (alternatively it could be checked if the input field was empty or not ...)
-    skin_paths = []
+    texture_paths = []
     for index, skin_name in enumerate(my_object.skin_names):
-        path = my_object.skin_names[index].rstrip("\x00")
-        # only first stored path is used since Digital Paintball 2 only uses that one
-        path = path.split("/")[-1]
-        print("Path: ", path)
-        # absolute path is formed by using the given md2 object path
-        absolute_path = "/".join(md2_path.split("/")[:-1])+"/"+path
-        print("Absolute Path: ", absolute_path)
-        skin_path = absolute_path
+        embedded_texture_name = my_object.skin_names[index].rstrip("\x00")
+        print("Embedded Texture Name " +embedded_texture_name)
+        embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
         """ Look for existing file of given name and supported image format """
         supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
-        skin_path_unextended = os.path.splitext(skin_path)[0] # remove extension (last one)
-        print("skin path unextended: ", skin_path_unextended)
         for format in supported_image_formats:
         #      Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
-            absolute_object_path = os.path.splitext(object_path)[0] # remove extension (last one)
-            if os.path.isfile(absolute_object_path+format):
-                skin_path = absolute_object_path+format
+            if os.path.isfile(model_path+embedded_texture_name_unextended+format):
+                texture_path = model_path+embedded_texture_name_unextended+format
+                print("Texture found: " +texture_path)
                 break
-        print("used skin path: ", absolute_object_path)
-        skin_paths.append(skin_path)
+            else:
+                print("Unable to locate texture " +model_path+embedded_texture_name_unextended+format +"!")
+        texture_paths.append(texture_path)
         
     """ Loads required information for mesh generation and UV mapping from the .md2 file"""
     # Gets name to give to the object and mesh in the outliner
     if not displayed_name:
         #      Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
-        #    object_name = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
+        #    object_name_test = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
         #   
         object_name = os.path.basename(md2_path).split('/')[-1]
         object_name = os.path.splitext(object_name)[0] # remove extension (last one)
-        print("object name: ", object_name)
+        print("Blender Outliner Object Name: ", object_name)
         mesh = bpy.data.meshes.new(object_name)  # add the new mesh via filename
 
     else:
-        print("displayed name: ", displayed_name)
+        print("Blender Outliner Object Name: ", displayed_name)
         object_name = [displayed_name]
         mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from Display Name input list
 
@@ -367,11 +379,12 @@ def blender_load_md2(md2_path, displayed_name):
 
     """ UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
     uv_layers = []
-    for index, skin_path in enumerate(skin_paths):
+    for index, texture_path in enumerate(texture_paths):
+        print("UV",index," skin path " + texture_path)
         uv_layer=(mesh.uv_layers.new())
         uv_layers.append(uv_layer)
-    mesh.uv_layers.active = uv_layers[0]
-    uv_layer = uv_layers[0]
+    mesh.uv_layers.active = uv_layers[index]
+    uv_layer = uv_layers[index]
     # add uv coordinates to each polygon (here: triangle since md2 only stores vertices and triangles)
     # note: faces and vertices are stored exactly in the order they were added
     for face_idx, face in enumerate(mesh.polygons):
@@ -396,20 +409,20 @@ def blender_load_md2(md2_path, displayed_name):
     load non-empty .pcx files
     idea/TODO: Write an own pcx loader from scratch ... """
     # Creating material and corresponding notes (see Shading tab)
-    for index, skin_path in enumerate(skin_paths):
+    for index, texture_path in enumerate(texture_paths):
         #        material_name = "md2_material_" + str(index)
         #
         # Changed texture name to be same as filename proceeded with 'M_'
-        material_name = "M_" + skin_path_unextended.split("/")[-1]
-        print("material name: ", material_name)
+        material_name = ("M_" + "\\".join(texture_path.split("\\")[-1:]))
+        print("Material name: " + material_name)
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
         bsdf.inputs['Specular'].default_value = 0
         texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
-        path = Path(skin_path)
+        path = Path(texture_path)
         if path.exists():
-            texImage.image = bpy.data.images.load(skin_paths[index])
+            texImage.image = bpy.data.images.load(texture_paths[index])
             # again copy and paste
             mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
         obj.data.materials.append(mat)
