@@ -156,9 +156,10 @@ def load_frames(frames_bytes, header):
     :return: list of frame dataclass objects
     """
     # # check if header.ofs_glcmds - header.ofs_frames == header.num_frames*(40+4*header.num_xyz) # #
-    #print("len", len(frames_bytes))
-    #print("frames", header.num_frames)
-    #print("check", header.num_frames*(40+4*header.num_xyz))
+    print("len", len(frames_bytes))
+    print("frames", header.num_frames)
+    print("check", header.num_frames*(40+4*header.num_xyz))
+    print("Differece ", header.ofs_glcmds - header.ofs_frames)
     frames = list()
     if header.resolution == 0:
         unpack_format = "<BBB"
@@ -173,8 +174,8 @@ def load_frames(frames_bytes, header):
     for current_frame in range(header.num_frames):
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12]))
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24]))
-        name = frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
-        #print("name: ", name)
+        name = frames_bytes[(40+(4+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(4+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
+        print("name: ", name)
         verts = list()
         for v in range(header.num_xyz):
             #print(v)
@@ -191,7 +192,7 @@ def load_frames(frames_bytes, header):
                 verts.append(vertex)
         #print(scale, translate, name, verts)
         frame = frame_t(scale, translate, name, verts)
-        #print(frame)
+        #print("Frame: ",frame)
         frames.append(frame)
     return frames
 
@@ -225,21 +226,8 @@ def load_texture_coordinates(texture_coordinate_bytes, header):
     :return: list of texture coordinate dataclass objects
     """
     texture_coordinates = list()
-    print("\nAppending texture coordinates to list...")
-    print(f"texture_coordinate_bytes array size: {len(texture_coordinate_bytes)}\n")
-
-    # UNCOMMENT to show each byte value on a new line (overkill)
-    #for item in texture_coordinate_bytes:
-    #    print(item)
-
     for i in range(header.num_st):
-        coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
-
-        # UNCOMMENT these 2 lines to show the actual value of 4*i and 4*i+4 for each coordinate, and the resulting coordinate
-        # print(f"Array index range: {4*i}, {4*i+4}")
-        # print(f"Current coordinate: {coordinate}")
-        
-        texture_coordinates.append(coordinate)
+        texture_coordinates.append(textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4])))
     return texture_coordinates
 
 
@@ -253,19 +241,23 @@ def load_file(path):
         byte_list = f.read()  # stores all bytes in bytes1 variable (named like that to not interfere with builtin names
     header = load_header(byte_list)
     skin_names = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
+    tagged_surfaces = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
+    
+    print("Skin Names ", skin_names)
+
     triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
     frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
     texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header)
     gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_end])
-    # print(header)
+    print(header)
     # print(skin_names)
     # print(triangles)
     # print(frames)
     #print("texture coords ")
     #print(texture_coordinates)
     # UV coordinates not correctly using 0,1 space, so I put in this hack to fix it - Creaper
-    header.skinwidth_adjusted = header.skinwidth-2
-    header.skinheight_adjusted = header.skinheight-2
+    header.skinwidth_adjusted = header.skinwidth
+    header.skinheight_adjusted = header.skinheight
     for i in range(len(texture_coordinates)):
         #texture_coordinates[i].s = texture_coordinates[i].s+2
        # print("texture_coordinates[i].s ")
@@ -378,17 +370,11 @@ def blender_load_md2(md2_path, displayed_name):
     mesh.from_pydata(all_verts[0], [], tris) 
 
     """ UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
-    uv_layers = []
-    for index, texture_path in enumerate(texture_paths):
-        print("UV",index," skin path " + texture_path)
-        uv_layer=(mesh.uv_layers.new())
-        uv_layers.append(uv_layer)
-    mesh.uv_layers.active = uv_layers[index]
-    uv_layer = uv_layers[index]
+    uv_layer=(mesh.uv_layers.new())
+    mesh.uv_layers.active = uv_layer
     # add uv coordinates to each polygon (here: triangle since md2 only stores vertices and triangles)
     # note: faces and vertices are stored exactly in the order they were added
     for face_idx, face in enumerate(mesh.polygons):
-        mesh.polygons[face_idx].use_smooth = True
         for idx, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
             uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
                 
@@ -412,8 +398,9 @@ def blender_load_md2(md2_path, displayed_name):
     for index, texture_path in enumerate(texture_paths):
         #        material_name = "md2_material_" + str(index)
         #
-        # Changed texture name to be same as filename proceeded with 'M_'
-        material_name = ("M_" + "\\".join(texture_path.split("\\")[-1:]))
+        # Changed texture name to be same as texture filename proceeded with 'M_'
+        texture_path_unextended = os.path.splitext(texture_path)[0] # remove extension (last one)
+        material_name = ("M_" + "\\".join(texture_path_unextended.split("\\")[-1:]))
         print("Material name: " + material_name)
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
@@ -425,6 +412,8 @@ def blender_load_md2(md2_path, displayed_name):
             texImage.image = bpy.data.images.load(texture_paths[index])
             # again copy and paste
             mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+        else:
+            print("Cannot find texture " + texture_paths[index] + "!")
         obj.data.materials.append(mat)
 
     print("YAY NO ERRORS!!")
@@ -453,15 +442,15 @@ class ImportSomeData(Operator, ImportHelper):
     #filename_ext = ".md2"
 
     filter_glob: StringProperty(
-        default="*.*", # only shows md2 files in opening screen
+        default="*.md2", # only shows md2 files in opening screen
         options={'HIDDEN'},
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
     
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
-    displayed_name: bpy.props.StringProperty(name="Displayed name",
-                                        description="What this model should be named in the outliner\ngood for default file names like tris.md2",
+    displayed_name: bpy.props.StringProperty(name="Outliner name",
+                                        description="Desired model name in the outliner.\nGood for renaming model to coincide with entity.dat.",
                                         default="",
                                         maxlen=1024)
     

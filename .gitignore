@@ -10,3 +10,6 @@
 
 # Folder just used to do a diff compare to potential changes
 Diff/
+
+# For backup/comparison
+*.old
