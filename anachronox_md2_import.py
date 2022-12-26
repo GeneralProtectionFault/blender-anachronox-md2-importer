@@ -42,27 +42,41 @@ class frame_t:  # 40 + num_xyz*4 bytes
 
 @dataclass
 class md2_t:
-    ident: int              # magic number. must be equal to "IDP2" or 844121161 as int
-    version: int            # md2 version. must be equal to 15
-    resolution: int         # Vertex resolution flag 0=3, 1=4, 2=6
+    ident: int                  # magic number. must be equal to "IDP2" or 844121161 as int
+    version: int                # md2 version. must be equal to 15
+    resolution: int             # Vertex resolution flag 0=3, 1=4, 2=6
 
-    skinwidth: int          # width of the texture
-    skinheight: int         # height of the texture
-    framesize: int          # size of one frame in bytes
+    skinwidth: int              # width of the texture
+    skinheight: int             # height of the texture
+    framesize: int              # size of one frame in bytes
 
-    num_skins: int          # number of textures
-    num_xyz: int            # number of vertices
-    num_st: int             # number of texture coordinates
-    num_tris: int           # number of triangles
-    num_glcmds: int         # number of opengl commands
-    num_frames: int         # total number of frames
+    num_skins: int              # number of textures
+    num_xyz: int                # number of vertices
+    num_st: int                 # number of texture coordinates
+    num_tris: int               # number of triangles
+    num_glcmds: int             # number of opengl commands
+    num_frames: int             # total number of frames
 
-    ofs_skins: int          # offset to skin names (64 bytes each)
-    ofs_st: int             # offset to s-t texture coordinates
-    ofs_tris: int           # offset to triangles
-    ofs_frames: int         # offset to frame data
-    ofs_glcmds: int         # offset to opengl commands
-    ofs_end: int            # offset to end of file
+    ofs_skins: int              # offset to skin names (64 bytes each)
+    ofs_st: int                 # offset to s-t texture coordinates
+    ofs_tris: int               # offset to triangles
+    ofs_frames: int             # offset to frame data
+    ofs_glcmds: int             # offset to opengl commands
+    ofs_end: int                # offset to end of file
+
+    # Added properties [Holonet]
+    ofs_dec_68 : int            # byte 68-71 (dec) - Another byte that shows the number of textures? Or is it Emits? Which is it?
+    ofs_end_strip_fan : int     # byte 72-75 (dec) - Ending offset for strip fan data
+    ofs_dec_76 : int            # byte 76-79 (dec) - The beginning of some unknown data lump. Contains duplicate data as offsets 80-83, and 84-87. What os this? Possibly normals data
+    
+    ofs_dec_80 : int            # byte 80-83 (dec) - Unknown data lump. Contains duplicate data as offsets 76-79, and 84-87. What is this? Possibly normals data
+    ofs_dec_84 : int            # byte 84-87 (dec) - The end of unknown data lump. Contains duplicate data as offsets 76-79, and 80-83. What is this?
+
+    num_tagged_surfaces : int    # byte 88-91 (dec) - The number of Tagged Surfaces (corresponds to skins)
+    
+    # This will point to the last lump of the file, which will be 8-byte chunks that have the name, and the last byte will have the triangle number on which the surface triangles start
+    # The first one will not have this number since it will naturally start on the 1st triangle
+    ofs_tagged_surfaces : int   # byte 92-95 (dec) - Starting offset for Tagged Surfaces
 
 
 @dataclass
@@ -95,6 +109,7 @@ class md2_object:
     header: md2_t
     skin_names: List[str]
     triangles: List[triangle_t]
+    triangle_lists: List[List[triangle_t]]
     frames: List[frame_t]
     texture_coordinates: List[textureCoordinate_t]
     gl_commands: List[glCommand_t]
@@ -133,6 +148,7 @@ def load_gl_commands(gl_command_bytes):
     return gl_commands
 
 
+
 def load_triangles(triangle_bytes, header):
     """
     Creates basic list of triangle dataclasses which contain indices to vertices
@@ -148,6 +164,53 @@ def load_triangles(triangle_bytes, header):
     return triangles
 
 
+
+def load_triangle_lists(triangle_bytes, header):
+    """
+    Creates basic list of triangle dataclasses which contain indices to vertices
+    :param triangle_bytes: bytes from md2 file belonging to triangles lump
+    :param header: dataclass containing header information
+    :return: list of triangles
+    """
+
+    if header.num_tagged_surfaces == 1:
+        return None
+
+    # Make this a nested loop within the number of tagged surfaces, and split up by the triangle index for each
+    triangle_lists = list()
+    # current_surface_triangle_index = 0
+    next_surface_triangle_start = list(header.tagged_surfaces.values())[1]
+    print(f"Initial triangle start (not including the first one/0): {next_surface_triangle_start}\n")
+
+    for i in range(header.num_tagged_surfaces):
+
+        triangles = list()
+        for i in range(header.num_tris):
+            triangle = triangle_t(list(struct.unpack("<hhh", triangle_bytes[12*i:12*i+6])), list(struct.unpack("<hhh", triangle_bytes[12*i+6:12*i+12])))
+            # print(triangle)
+            triangles.append(triangle)
+
+            if i + 1 == next_surface_triangle_start:
+                print("New triangle list...")
+                triangle_lists.append(triangles)
+
+                # Prevent crash if we're on the last tagged surface
+                if i + 1 <= len(list(header.tagged_surfaces.values())):
+                    next_surface_triangle_start = list(header.tagged_surfaces.values())[i + 1]
+                
+                # Reset for next bunch o' triangles
+                triangles = list()
+
+            # last loop, add the last triangle list
+            if i + 1 == header.num_tris:
+                print("Apending last triangle list...")
+                triangle_lists.append(triangles)
+                
+
+    # return triangles
+    return triangle_lists
+
+
 def load_frames(frames_bytes, header):
     """
     Loads frames
@@ -156,10 +219,10 @@ def load_frames(frames_bytes, header):
     :return: list of frame dataclass objects
     """
     # # check if header.ofs_glcmds - header.ofs_frames == header.num_frames*(40+4*header.num_xyz) # #
-    print("len", len(frames_bytes))
-    print("frames", header.num_frames)
-    print("check", header.num_frames*(40+4*header.num_xyz))
-    print("Differece ", header.ofs_glcmds - header.ofs_frames)
+    print("len (frames_bytes): ", len(frames_bytes))
+    print("frames: ", header.num_frames)
+    print("check ( num_frames*(40+4*header.num_xyz) ): ", header.num_frames*(40+4*header.num_xyz))
+    print("Differece (ofs_glcmds - ofs_frames): ", header.ofs_glcmds - header.ofs_frames)
     frames = list()
     if header.resolution == 0:
         unpack_format = "<BBB"
@@ -175,7 +238,7 @@ def load_frames(frames_bytes, header):
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12]))
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24]))
         name = frames_bytes[(40+(4+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(4+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
-        print("name: ", name)
+        # print("bytes this frame: ", name)
         verts = list()
         for v in range(header.num_xyz):
             #print(v)
@@ -204,7 +267,7 @@ def load_header(file_bytes):
     :return: header dataclass object
     """
     # print(file_bytes[:4].decode("ascii", "ignore"))
-    arguments = struct.unpack("<ihhiiiiiiiiiiiiiii", file_bytes[:68])
+    arguments = struct.unpack("<ihhiiiiiiiiiiiiiiiiiiiiii", file_bytes[:96])
     header = md2_t(*arguments)
     # Verify MD2
     if not header.ident == 844121161 or not header.version == 15:
@@ -212,8 +275,12 @@ def load_header(file_bytes):
         print(f'Ident: {file_bytes[:4].decode("ascii", "ignore")} should be "IDP2"')
         print(f"Version: {header.version} should be 15")
 
+
+    print("--------------- HEADER VALUES -------------------")
     for field in fields(header):
-        print(field.name, getattr(header, field.name))
+        print(f"{field.name} - ", getattr(header, field.name))
+
+    print("--------------------------------------------------")
 
     return header
 
@@ -241,15 +308,39 @@ def load_file(path):
         byte_list = f.read()  # stores all bytes in bytes1 variable (named like that to not interfere with builtin names
     header = load_header(byte_list)
     skin_names = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
-    tagged_surfaces = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
-    
-    print("Skin Names ", skin_names)
+    print(f"\nSkin Names:  {skin_names}\n")
 
+    header.tagged_surfaces = {}
+
+    for i in range(header.num_tagged_surfaces):
+        # Each tagged skin takes up 12 bytes
+        # Skin name is in 1-8, the 9th byte has the starting triangle number
+        start_index = header.ofs_tagged_surfaces + (i * 12)
+        stop_index = start_index + 12
+
+        print(f"Start & Stop index: {start_index}, {stop_index}")
+
+        surface = byte_list[start_index : stop_index - 4].decode("ascii", "ignore")
+        print(f"Surface: {surface}")
+        
+        # [0] at end is because unpack will return a tuple
+        tagged_surface_triangle_start = int(struct.unpack("<B", byte_list[start_index + 8 : start_index + 9])[0])
+        print(f"Starting triangle: {tagged_surface_triangle_start}")
+
+        header.tagged_surfaces[surface] = tagged_surface_triangle_start
+
+        print("Tagged surface dictionary:\n")
+        print(header.tagged_surfaces)
+
+    
+    # This is now a LIST
     triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
+    triangle_lists = load_triangle_lists(byte_list[header.ofs_tris:header.ofs_frames], header)
+    
     frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
     texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header)
     gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_end])
-    print(header)
+    # print(header)
     # print(skin_names)
     # print(triangles)
     # print(frames)
@@ -276,11 +367,12 @@ def load_file(path):
             frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0]*frames[i_frame].scale.x+frames[i_frame].translate.x
             frames[i_frame].verts[i_vert].v[1] = frames[i_frame].verts[i_vert].v[1] * frames[i_frame].scale.y + frames[i_frame].translate.y
             frames[i_frame].verts[i_vert].v[2] = frames[i_frame].verts[i_vert].v[2] * frames[i_frame].scale.z + frames[i_frame].translate.z
-    model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands)
+    model = md2_object(header, skin_names, triangles, triangle_lists, frames, texture_coordinates, gl_commands)
     return model
 
 
 import bpy
+import bmesh
 import sys
 from importlib import reload # required when a self-written module is imported that's edited simultaneously
 import os  # for checking if skin pathes exist
@@ -304,9 +396,9 @@ def blender_load_md2(md2_path, displayed_name):
     print("md2_path: ", md2_path)
     #object_path = md2_path  # Kept for testing purposes
     model_path = '\\'.join(md2_path.split('\\')[0:-1])+"\\"
-    print("Model Path ", model_path)
+    print("Model Path: ", model_path)
     model_filename = "\\".join(md2_path.split("\\")[-1:])
-    print("Model Filename ", model_filename)
+    print("Model Filename: ", model_filename)
 
     # A dataclass containing all information stored in a .md2 file
     my_object = load_file(md2_path)
@@ -355,40 +447,18 @@ def blender_load_md2(md2_path, displayed_name):
     all_verts = [[x.v for x in my_object.frames[y].verts] for y in range(my_object.header.num_frames)]
     # List of vertex indices forming a triangular face
     tris = ([x.vertexIndices for x in my_object.triangles])
-    # uv coordinates (in q2 terms st coordinates) for projecting the skin on the model's faces
-    # blender flips images upside down when loading so v = 1-t for blender imported images
-    uvs_others = ([(x.s, 1-x.t) for x in my_object.texture_coordinates]) 
-    # blender uv coordinate system originates at lower left
+    
 
     """ Lots of code (copy and pasted) that creates a mesh and adds it to the scene collection/outlines """
     obj = bpy.data.objects.new(mesh.name, mesh)
     col = bpy.data.collections.get("Collection")
     col.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
 
     # Creates mesh by taking first frame's vertices and connects them via indices in tris
     mesh.from_pydata(all_verts[0], [], tris) 
 
-    """ UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
-    uv_layer=(mesh.uv_layers.new())
-    mesh.uv_layers.active = uv_layer
-    # add uv coordinates to each polygon (here: triangle since md2 only stores vertices and triangles)
-    # note: faces and vertices are stored exactly in the order they were added
-    for face_idx, face in enumerate(mesh.polygons):
-        for idx, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
-            uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
-                
-    """ Create animation for animated models: set keyframe for each vertex in each frame individually """
-    # Create keyframes from first to last frame
-    for i in range(my_object.header.num_frames):
-        for idx,v in enumerate(obj.data.vertices):
-            obj.data.vertices[idx].co = all_verts[i][idx]
-            v.keyframe_insert('co', frame=i*2)  # parameter index=2 restricts keyframe to dimension
-
-    # insert first keyframe after last one to yield cyclic animation
-    # for idx,v in enumerate(obj.data.vertices):
-    # 	obj.data.vertices[idx].co = all_verts[0][idx]
-    # 	v.keyframe_insert('co', frame=60)
 
     """ Assign skin to mesh: Create material (barely understood copy and paste again) and set the image. 
     Might work by manually setting the textures pixels to the pixels of a PIL.Image if it would actually
@@ -396,8 +466,7 @@ def blender_load_md2(md2_path, displayed_name):
     idea/TODO: Write an own pcx loader from scratch ... """
     # Creating material and corresponding notes (see Shading tab)
     for index, texture_path in enumerate(texture_paths):
-        #        material_name = "md2_material_" + str(index)
-        #
+        
         # Changed texture name to be same as texture filename proceeded with 'M_'
         texture_path_unextended = os.path.splitext(texture_path)[0] # remove extension (last one)
         material_name = ("M_" + "\\".join(texture_path_unextended.split("\\")[-1:]))
@@ -416,9 +485,92 @@ def blender_load_md2(md2_path, displayed_name):
             print("Cannot find texture " + texture_paths[index] + "!")
         obj.data.materials.append(mat)
 
+    
+
+
+    # uv coordinates (in q2 terms st coordinates) for projecting the skin on the model's faces
+    # blender flips images upside down when loading so v = 1-t for blender imported images
+    uvs_others = ([(x.s, 1-x.t) for x in my_object.texture_coordinates]) 
+    # blender uv coordinate system originates at lower left
+
+
+    """ UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
+    uv_layer=(mesh.uv_layers.new())
+    mesh.uv_layers.active = uv_layer
+    # add uv coordinates to each polygon (here: triangle since md2 only stores vertices and triangles)
+    # note: faces and vertices are stored exactly in the order they were added
+    for face_idx, face in enumerate(mesh.polygons):
+        for idx, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
+            uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
+
+
+    
+    """ Create animation for animated models: set keyframe for each vertex in each frame individually """
+    # Create keyframes from first to last frame
+    for i in range(my_object.header.num_frames):
+        for idx,v in enumerate(obj.data.vertices):
+            obj.data.vertices[idx].co = all_verts[i][idx]
+            v.keyframe_insert('co', frame=i*2)  # parameter index=2 restricts keyframe to dimension
+
+    # insert first keyframe after last one to yield cyclic animation
+    # for idx,v in enumerate(obj.data.vertices):
+    # 	obj.data.vertices[idx].co = all_verts[0][idx]
+    # 	v.keyframe_insert('co', frame=60)
+
+    
+
+    bpy.context.tool_settings.mesh_select_mode = [False, False, True]
+    bpy.context.object.active_material_index = 0
+
+    triangle_offsets = list(my_object.header.tagged_surfaces.values())
+    print(f"\nAll triangle offsets: {triangle_offsets}")
+
+    for index, offset in enumerate(triangle_offsets):
+        print(f"Current material index: {bpy.context.object.active_material_index}")
+        bpy.ops.object.mode_set(mode = 'EDIT')
+        bpy.ops.mesh.select_all(action = 'DESELECT')
+
+        triangle_start = triangle_offsets[index]
+        
+        # If we're on the last loop & face, set the last triangle to...the last triangle number :)
+        if index == len(triangle_offsets) - 1:
+            triangle_stop = my_object.header.num_tris - 1
+        else:
+            triangle_stop = triangle_offsets[index + 1]        
+        
+        bpy.ops.object.mode_set(mode = 'OBJECT')
+        for face_idx, face in enumerate(mesh.polygons[triangle_start : triangle_stop]):
+            # mesh.polygons[face_idx].select = True
+            face.material_index = bpy.context.object.active_material_index
+
+        # TEST ------------------------------------
+        selected_count = 0
+        for face_idx, face in enumerate(mesh.polygons):
+            if mesh.polygons[face_idx].select == True:
+                selected_count += 1
+        
+        print(f"Selected face count: {selected_count}")
+        # -----------------------------------------
+
+        bpy.ops.object.mode_set(mode = 'EDIT')
+        # bpy.ops.object.material_slot_assign()
+
+        print(f"Assigned materials for triangle range: {triangle_start}, {triangle_stop}")
+
+        # If we're on the last loop & face, don't set the material to one that doesn't exist :)
+        if index != len(triangle_offsets) - 1:
+            bpy.context.object.active_material_index += 1
+
+
+    
+
     print("YAY NO ERRORS!!")
     return {'FINISHED'} # no idea, seems to be necessary for the UI
-        
+
+
+
+
+
 """
 This part is required for the UI, to make the Addon appear under File > Import once it's
 activated and to have additional input fields in the file picking menu
@@ -477,7 +629,7 @@ def register():
     
     # install required packages
     subprocess.call([python_exe, "-m", "pip", "install", "pillow"])
-    
+
     from PIL import Image, ImageFile
 
     bpy.utils.register_class(ImportSomeData)
