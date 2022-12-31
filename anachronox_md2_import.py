@@ -12,6 +12,8 @@ from dataclasses import dataclass, fields
 import struct
 from pathlib import Path
 from typing import List
+import PIL
+from PIL import Image, ImagePath
 """
 This part is used to load an md2 file into a MD2 dataclass object
 """
@@ -172,35 +174,65 @@ def load_frames(frames_bytes, header):
     #print("check", header.num_frames*(40+4*header.num_xyz))
     frames = list()
     frame_names = list()
-    if header.resolution == 0: #vertex information in 3 bytes (8 bit vertices)
+    if header.resolution == 0: # vertex information in 3 bytes (8 bit vertices)
         unpack_format = "<BBB"
         resolution_bytes = 0
-    elif header.resolution == 1: #vertex information in 4 bytes (11 bit X, 10 bit Y, 11 bit Z)
+    elif header.resolution == 1: # vertex information in 4 bytes (11 bit X, 10 bit Y, 11 bit Z)
         unpack_format = "<BBB"
         resolution_bytes = 1
-    elif header.resolution == 2: #vertex information in 6 bytes (16 bit vertices)
+    elif header.resolution == 2: # vertex information in 6 bytes (16 bit vertices)
         unpack_format = "<HHH"
         resolution_bytes = 3
 
-    for current_frame in range(header.num_frames):
-        scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12]))
-        translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+12:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24]))
-        name = frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+24:(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40].decode("ascii", "ignore")
-        #print("name", name)
+    for current_frame_number in range(header.num_frames):
+        # Get any scaling for this frame of animation
+        scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number : (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 12]))
+        # Get any movement for this frame of animation
+        translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 12 : (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 24]))
+        # Animation name
+        name = frames_bytes[(40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 24 : (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 40].decode("ascii", "ignore")
+        
+
         verts = list()
+        # Loop for the number of vertices
         for v in range(header.num_xyz):
             #print(v)
             if header.resolution == 0 or header.resolution == 2:
-                verts.append(vertex_t(list(struct.unpack(unpack_format, frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40+v*(5+resolution_bytes):(40+(5+resolution_bytes)*header.num_xyz)*current_frame+40+v*(5+resolution_bytes)+(3+resolution_bytes)])), *struct.unpack("<H", frames_bytes[(40+(5+resolution_bytes)*header.num_xyz)*current_frame+(43+resolution_bytes)+v*(5+resolution_bytes):(40+(5+resolution_bytes)*header.num_xyz)*current_frame+(45+resolution_bytes)+v*(5+resolution_bytes)])))  # list() only for matching expected type
+                # First mess is the vertex (vector)
+                vertex_start_index = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 40 + v * (5 + resolution_bytes)
+                vertex_end_index = vertex_start_index + (3 + resolution_bytes)
+                # print(f"Vertex index range: {start_index}, {end_index}")
+                lightnormal_start_index = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + (43 + resolution_bytes) + v * (5 + resolution_bytes)
+                lightnormal_end_index = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + (45 + resolution_bytes) + v * (5 + resolution_bytes)
+
+                # struct.unpack returns tuple--in this case, 3 bytes, which are coordinates for the vertex
+                verts.append(vertex_t(list(struct.unpack(unpack_format, frames_bytes[vertex_start_index : vertex_end_index])), # list() only for matching expected type 
+                     *struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])))  
+
             elif header.resolution == 1:
-                vertexBytes = int.from_bytes(frames_bytes[(40+6*header.num_xyz)*current_frame+40+v*6:(40+6*header.num_xyz)*current_frame+40+v*6+4], sys.byteorder)
+                vertex_start_index = (40 + 6 * header.num_xyz) * current_frame_number + 40 + v * 6
+                vertex_end_index = vertex_start_index + 4
+                vertexBytes = int.from_bytes(frames_bytes[vertex_start_index : vertex_end_index], sys.byteorder)
+                # print(f"vertex bytes value: {vertexBytes}")
                 x = vertexBytes >> 0 & 0x000007ff
                 y = vertexBytes >> 11 & 0x000003ff
                 z = vertexBytes >> 21 & 0x000007ff
                 vector = [x,y,z]
-                normal = struct.unpack("<H", frames_bytes[(40+6*header.num_xyz)*current_frame+44+v*6:(40+6*header.num_xyz)*current_frame+46+v*6])[0]
+                # print(f"Vertex vector after bit shift: {vector}")
+
+                lightnormal_start_index = (40 + 6 * header.num_xyz) * current_frame_number + 44 + v * 6
+                lightnormal_end_index = (40 + 6 * header.num_xyz) * current_frame_number + 46 + v * 6
+                normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])[0]
+
+                # print the range of the first vertex for debugging
+                if current_frame_number == 0 and v == 0:
+                    print(v)
+                    print(f"Vertex index range: {vertex_start_index}, {vertex_end_index}")
+                    print(f"Normal index range: {lightnormal_start_index}, {lightnormal_end_index}")
+
                 vertex = vertex_t(vector, normal)
                 verts.append(vertex)
+
         name = name.rstrip("\x00")
         frame_names.append(name)
         #print(scale, translate, name, verts)
@@ -208,7 +240,8 @@ def load_frames(frames_bytes, header):
         #print("Frame: ",frame)
         frames.append(frame)
         #print("Frame names ", frame_names)
-#    print("Frame Names", frame_names) # write code to count the number of frames in each frame name
+
+    # print("Frame Names", frame_names) # write code to count the number of frames in each frame name
     return frames
 
 
@@ -233,6 +266,24 @@ def load_header(file_bytes):
         print(f"{field.name} - ", getattr(header, field.name))
 
     print("--------------------------------------------------")
+
+    # Extra Data
+    # For each skin, there is a short betwen the end of the glcommands - beginning of the tagged surfaces (Meaning currently unclear but probably opengl-related)
+    # This does not appear to be in the header info, but can be derived form it.  These values will be placed here, and could be added to the md2_object if necessary
+    
+    # This also means the offset primitives is the same as the ofs_end_fan value (should act as a check)
+    number_of_primitives = header.num_skins
+    offset_primitives = header.ofs_glcmds + (4 * header.num_glcmds)
+
+    print(f"\nNumber of primitives: {number_of_primitives}")
+    print(f"Offset primitives: {offset_primitives}\n")
+
+    primitive_bytes = file_bytes[offset_primitives : header.ofs_tsurf]
+
+    for i in range(number_of_primitives):
+        value = struct.unpack("<H", primitive_bytes[(i * 2) : (i * 2) + 2])[0]
+        print(f"Primitive value {i}: {value}")
+
 
     return header
 
@@ -287,14 +338,14 @@ def load_file(path):
         # print("skin width ")
         # print(header.skinwidth)
         if header.resolution == 0: # UV scaling fix for resolution 0 only for first texture
-            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted*1.0667
-            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted*1.0322
+            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted # *1.0667
+            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted # *1.0322
         elif header.resolution == 1: # UV scaling fix for resolition 1 only for first texture
-            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted*1.0323
-            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted*1.0159
+            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted # *1.0323
+            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted # *1.0159
         elif header.resolution == 2: # UV scaling fix for resolution 2 only for first texture
-            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted*1.0156
-            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted*1.0077
+            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted # *1.0156
+            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted # *1.0077
             
         # print("texture_coordinates[i].s after ")
         # print(texture_coordinates[i].s)
@@ -304,7 +355,7 @@ def load_file(path):
     
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
-            frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0]*frames[i_frame].scale.x+frames[i_frame].translate.x
+            frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0] * frames[i_frame].scale.x + frames[i_frame].translate.x
             frames[i_frame].verts[i_vert].v[1] = frames[i_frame].verts[i_vert].v[1] * frames[i_frame].scale.y + frames[i_frame].translate.y
             frames[i_frame].verts[i_vert].v[2] = frames[i_frame].verts[i_vert].v[2] * frames[i_frame].scale.z + frames[i_frame].translate.z
     model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_names)
