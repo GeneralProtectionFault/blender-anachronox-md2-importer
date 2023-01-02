@@ -33,6 +33,11 @@ class vertex_t:  # 4 bytes in total
     v: list  # unsigned char (in python 1 byte int), list of len 3, compressed vertex
     lightnormalindex: int  # unsigned char, index to a normal vector for the lighting
 
+@dataclass
+class vertex_indexed: # Store the vertex order for matching to triangle data
+    index: int
+    v: list
+
 
 @dataclass
 class frame_t:  # 40 + num_xyz*4 bytes
@@ -66,7 +71,7 @@ class md2_t:
     ofs_glcmds: int                     # offset to opengl commands
     ofs_end: int                        # offset to end of file
     num_header_ofs_dec_68: int          # unknown number specified in the header at 44H
-    ofs_end_fan: int                    # offset to the end of 
+    ofs_end_fan: int                    # offset to the end of the gl commands 
     num_LODdata1: int                   # Float LOD data 1
     num_LODdata2: int                   # Float LOD data 2
     num_LODdata3: int                   # Float LOD data 3
@@ -108,7 +113,11 @@ class md2_object:
     frames: List[frame_t]
     texture_coordinates: List[textureCoordinate_t]
     gl_commands: List[glCommand_t]
-    tsurf_names: List[str]
+    tagged_surfaces: dict()
+    vertices: List[vertex_indexed]
+    triangle_skin_dict: dict()
+    extra_data: dict()
+    texture_paths: list()
 
 
 """
@@ -124,7 +133,7 @@ def load_gl_commands(gl_command_bytes):
     offset = 0
     gl_commands = list()
     while True:  # ends when mode is 0
-        (mode,) = struct.unpack("<i", gl_command_bytes[offset:offset+4])
+        (mode,) = struct.unpack("<i", gl_command_bytes[offset : offset + 4]) # 4 bytes - 1 int
         num_verts = abs(mode)
         if mode > 0:
             mode = "GL_TRIANGLE_STRIP"
@@ -133,17 +142,19 @@ def load_gl_commands(gl_command_bytes):
             break
         else:
             mode = "GL_TRIANGLE_FAN"
+
         offset += 4
+
         gl_vertices = list()
         for i in range(num_verts):
-            s_and_t = struct.unpack("<ff", gl_command_bytes[offset+12*i:offset+12*i+8])
-            vertex_index = struct.unpack("<i", gl_command_bytes[offset+12*i+8:offset+12*i+12])
+            s_and_t = struct.unpack("<ff", gl_command_bytes[offset + 12 * i : offset + 12 * i + 8]) # 8 bytes - 2 floats
+            vertex_index = struct.unpack("<i", gl_command_bytes[offset + 12 * i + 8 : offset + 12 * i + 12]) # 4 bytes - 1 int
             gl_vertices.append(glCommandVertex_t(*s_and_t, *vertex_index))
         # print(gl_vertices)
-        offset += 12*num_verts
+        
+        offset += 12 * num_verts
         gl_commands.append(glCommand_t(mode, gl_vertices))
     return gl_commands
-
 
 
 def load_triangles(triangle_bytes, header):
@@ -224,12 +235,6 @@ def load_frames(frames_bytes, header):
                 lightnormal_end_index = (40 + 6 * header.num_xyz) * current_frame_number + 46 + v * 6
                 normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])[0]
 
-                # print the range of the first vertex for debugging
-                if current_frame_number == 0 and v == 0:
-                    print(v)
-                    print(f"Vertex index range: {vertex_start_index}, {vertex_end_index}")
-                    print(f"Normal index range: {lightnormal_start_index}, {lightnormal_end_index}")
-
                 vertex = vertex_t(vector, normal)
                 verts.append(vertex)
 
@@ -272,32 +277,116 @@ def load_header(file_bytes):
     # This does not appear to be in the header info, but can be derived form it.  These values will be placed here, and could be added to the md2_object if necessary
     
     # This also means the offset primitives is the same as the ofs_end_fan value (should act as a check)
-    number_of_primitives = header.num_skins
-    offset_primitives = header.ofs_glcmds + (4 * header.num_glcmds)
-
-    print(f"\nNumber of primitives: {number_of_primitives}")
-    print(f"Offset primitives: {offset_primitives}\n")
-
-    primitive_bytes = file_bytes[offset_primitives : header.ofs_tsurf]
-
-    for i in range(number_of_primitives):
-        value = struct.unpack("<H", primitive_bytes[(i * 2) : (i * 2) + 2])[0]
-        print(f"Primitive value {i}: {value}")
-
+    header.num_prim = header.num_skins
+    header.ofs_prim = header.ofs_glcmds + (4 * header.num_glcmds)
 
     return header
 
 
-def load_texture_coordinates(texture_coordinate_bytes, header):
+def load_texture_paths_and_skin_resolutions(skin_names, path):
+    model_path = '\\'.join(path.split('\\')[0:-1])+"\\"
+    texture_paths = []
+    skin_resolutions = {}
+    for skin_index, skin_name in enumerate(skin_names):
+        embedded_texture_name = skin_names[skin_index].rstrip("\x00")
+        embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
+        print("Embedded Texture Name " +embedded_texture_name)
+        """ Look for existing file of given name and supported image format """
+        supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
+        for format in supported_image_formats:
+            # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
+            texture_path = model_path + embedded_texture_name_unextended + format
+            if os.path.isfile(texture_path):
+                print("Texture found: " + texture_path)
+
+                # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
+                with PIL.Image.open(texture_path) as img:
+                    width, height = img.size
+                    skin_resolutions[skin_index] = img.size
+                    print(f"Texture resolution, {embedded_texture_name}: {skin_resolutions[skin_index]}")
+                
+                break
+            else:
+                print("Unable to locate texture " + model_path + embedded_texture_name_unextended+format + "!")
+        texture_paths.append(texture_path)
+    
+    print(f"Skin resolution info:\n{skin_resolutions}")
+    return texture_paths, skin_resolutions
+
+
+
+def load_triangle_gl_list(gl_commands, triangles, extra_data):
+    # Iterate over the GL COMMANDS
+    # -> Iterate over the TRIANGLES
+    # -> -> Iterate over the vertices of the current GL COMMAND
+    # -> -> If at least 2 of the vertex indices for that triangle are in the range of vertices for that gl command,
+    # ...associate that triangle with one skin or the other, depending on if the gl command is in the range specified
+    
+    # Dictionary to store which triangles each gl command will be associated with
+    triangle_skin_dict = {}
+
+    # If there's only 1 skin, there will not be extra data or the need to separate triangles by skin
+    if len(extra_data) < 1:
+        for triangle_index, triangle in enumerate(triangles):
+            triangle_skin_dict[triangle_index] = 0
+
+    else:
+        for command_index, command in enumerate(gl_commands):
+
+            for triangle_index, triangle in enumerate(triangles):
+                vertex_match_count = 0
+                # Check every vertex index to see if it's in any of the trianle vertex references
+                # print(f"Iterating over vertices: {command.vertices}")
+                for vert in command.vertices:
+                    if triangle.vertexIndices[0] == vert.vertexIndex or triangle.vertexIndices[1] == vert.vertexIndex or triangle.vertexIndices[2] == vert.vertexIndex:
+                        # print(f"Vertex {vert} matches triangle {triangle_index}")
+                        vertex_match_count += 1
+                
+                if vertex_match_count >= 3:
+                    # Check if the current gl command index is in the ofs_prim => num_prim range, and assign the different skin accordingly
+                    # if my_object.extra_data[0][1] <= command_index <= my_object.extra_data[0][1] + my_object.extra_data[0][0]:
+                    if extra_data[0][0] <= command_index <= extra_data[0][0] + extra_data[0][1]:
+                        # print(f"gl command {command_index} within range, assigning triangle {triangle_index} to skin 0")
+                        triangle_skin_dict[triangle_index] = 1
+                    else:
+                        # print(f"gl command {command_index} not within range, assigning triangle {triangle_index} to skin 1")
+                        triangle_skin_dict[triangle_index] = 0
+
+    # print(triangle_gl_commands)
+    print(f"Total of {len(triangle_skin_dict)} triangles associated to a gl command.")
+    return triangle_skin_dict
+
+
+
+def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary):
     """
-    Loads UV (in Q2 term ST) coordinates
+    Loads UV (in Quake 2 terms, ST) coordinates
     :param texture_coordinate_bytes:
     :param header:
     :return: list of texture coordinate dataclass objects
     """
     texture_coordinates = list()
     for i in range(header.num_st):
-        texture_coordinates.append(textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4])))
+        current_coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
+        texture_coordinates.append(current_coordinate)
+    
+    # If we have multiple textures...
+    # if header.num_skins > 1:
+        # Create dictionary to tie the texture coordinates to the skin via the triangles => skin relationship passed in
+    texture_skin_dict = {}
+    for coord_index, coordinate in enumerate(texture_coordinates):
+        for triangle_index, triangle in enumerate(triangles):
+            if triangle.textureIndices[0] == coord_index or triangle.textureIndices[1] == coord_index or triangle.textureIndices[2] == coord_index:
+                texture_skin_dict[coord_index] = triangle_gl_dictionary[triangle_index] # dictionary returns the skin previously assigned
+    
+    print(f"texture skin dictionary size: {len(texture_skin_dict)}")
+
+
+    for coord_index, coord in enumerate(texture_coordinates):
+        coord.s = coord.s / skin_resolutions[texture_skin_dict[coord_index]][0]
+        coord.t = coord.t / skin_resolutions[texture_skin_dict[coord_index]][1]
+
+
     return texture_coordinates
 
 
@@ -312,54 +401,59 @@ def load_file(path):
     header = load_header(byte_list)
     skin_names = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
     #print("Skin Names ", skin_names)
-    tsurf_names = [byte_list[header.ofs_tsurf + 12 * x:header.ofs_tsurf + 12 * x + 8].decode("ascii", "ignore") for x in range(header.num_tsurf)]
-    #print("Tagged Surface Names ", tsurf_names)
-    #todo Grab number of tagged triangles per tagged surface and the data right before the first tagged surface name that I have momentarily forgotten what it is
-    
 
     triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
     frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
-    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header)
+    texture_paths, skin_resolutions = load_texture_paths_and_skin_resolutions(skin_names, path)
+
     gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_end_fan])
     
-    # print(header)
-    # print(skin_names)
-    # print(triangles)
-    # print(frames)
-    #print("texture coords ")
-    #print(texture_coordinates)
-    # UV coordinates not correctly using 0,1 space, so I temporarily put in this hack to fix it - Creaper
-    header.skinwidth_adjusted = header.skinwidth
-    header.skinheight_adjusted = header.skinheight
-    for i in range(len(texture_coordinates)):
-        # texture_coordinates[i].s = texture_coordinates[i].s+2
-        # print("texture_coordinates[i].s ")
-        # print(texture_coordinates[i].s)
-        # print("skin width ")
-        # print(header.skinwidth)
-        if header.resolution == 0: # UV scaling fix for resolution 0 only for first texture
-            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted # *1.0667
-            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted # *1.0322
-        elif header.resolution == 1: # UV scaling fix for resolition 1 only for first texture
-            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted # *1.0323
-            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted # *1.0159
-        elif header.resolution == 2: # UV scaling fix for resolution 2 only for first texture
-            texture_coordinates[i].s = (texture_coordinates[i].s) /header.skinwidth_adjusted # *1.0156
-            texture_coordinates[i].t = texture_coordinates[i].t / header.skinheight_adjusted # *1.0077
-            
-        # print("texture_coordinates[i].s after ")
-        # print(texture_coordinates[i].s)
-        # print(f"Coordinate {i} - {texture_coordinates[i]}")
+    # This is not the "num_glcmds" from the header.  That number counts each vertex as a separate command.  The following is the number of ACTUAL gl commands
+    print(f"Parsed {len(gl_commands)} GL Commands.")
+
+    print(f"\nNumber of primitives: {header.num_prim}")
+    print(f"Offset primitives: {header.ofs_prim}\n")
+
+    #tsurf_names = [byte_list[header.ofs_tsurf + 12 * x:header.ofs_tsurf + 12 * x + 8].decode("ascii", "ignore") for x in range(header.num_tsurf)]
+    tsurf_dictionary = {}
+    for i in range(header.num_tsurf):
+        tsurf_start_index = header.ofs_tsurf + (i * 12)
+        surface_name = byte_list[tsurf_start_index : tsurf_start_index + 8].decode("ascii", "ignore").rstrip("\x00")
+        surface_triange = struct.unpack("<i", byte_list[tsurf_start_index + 8 : tsurf_start_index + 12])[0]
+        tsurf_dictionary[surface_name] = surface_triange
     
-    print(f"Number of vertices: {header.num_xyz}\n")
+    print(f"Tagged Surface Names & Triangles:\n{tsurf_dictionary}")
+
+    extra_data = list()
+    triangle_skin_dictionary = {}
+    # If there's only 1 skin, this stuff will not exist and we'll have ourselves a crash, so only get this conditionally
+    #if header.num_skins > 1:
+    primitive_bytes = byte_list[header.ofs_prim : header.ofs_tsurf]
+    for i in range(header.num_prim - 1):
+        values = struct.unpack("<HH", primitive_bytes[(i * 2) : (i * 2) + 4])
+        extra_data.append(values)
+        print(f"Primitive value {i}: {values}")
+
+    triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
+    
+    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary)
     
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
             frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0] * frames[i_frame].scale.x + frames[i_frame].translate.x
             frames[i_frame].verts[i_vert].v[1] = frames[i_frame].verts[i_vert].v[1] * frames[i_frame].scale.y + frames[i_frame].translate.y
             frames[i_frame].verts[i_vert].v[2] = frames[i_frame].verts[i_vert].v[2] * frames[i_frame].scale.z + frames[i_frame].translate.z
-    model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_names)
+
+    # vertices = [x.v for x in frames[0].verts]
+    vertices = list()
+    for i, vert in enumerate(frames[0].verts):
+        vertices.append(vertex_indexed(i, vert))
+
+    model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_dictionary, vertices, triangle_skin_dictionary, extra_data, texture_paths)
     return model
+
+
+
 
 
 import bpy
@@ -393,38 +487,14 @@ def blender_load_md2(md2_path, displayed_name, model_scale):
     # A dataclass containing all information stored in a .md2 file
     my_object = load_file(md2_path)
 
-
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
     """
     """ get the skin path stored inside of the MD2 """
     # check box must be checked (alternatively it could be checked if the input field was empty or not ...)
-    texture_paths = []
-    my_object.skin_resolutions = {}
 
-    for index, skin_name in enumerate(my_object.skin_names):
-        embedded_texture_name = my_object.skin_names[index].rstrip("\x00")
-        embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
-        print("Embedded Texture Name " +embedded_texture_name)
-        """ Look for existing file of given name and supported image format """
-        supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
-        for format in supported_image_formats:
-            # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
-            texture_path = model_path + embedded_texture_name_unextended + format
-            if os.path.isfile(texture_path):
-                print("Texture found: " + texture_path)
 
-                # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
-                with PIL.Image.open(texture_path) as img:
-                    width, height = img.size
-                    my_object.skin_resolutions[embedded_texture_name] = img.size
-                    print(f"Texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}")
-                
-                break
-            else:
-                print("Unable to locate texture " +model_path+embedded_texture_name_unextended+format +"!")
-        texture_paths.append(texture_path)
-        
+
     """ Loads required information for mesh generation and UV mapping from the .md2 file"""
     # Gets name to give to the object and mesh in the outliner
     if not displayed_name:
@@ -472,71 +542,115 @@ def blender_load_md2(md2_path, displayed_name, model_scale):
                 
     """ Create animation for animated models: set keyframe for each vertex in each frame individually """
     # Create keyframes from first to last frame
-    for i in range(my_object.header.num_frames):
+    for triangle_index in range(my_object.header.num_frames):
         for idx,v in enumerate(obj.data.vertices):
-            obj.data.vertices[idx].co = all_verts[i][idx]
-            v.keyframe_insert('co', frame=i*2)  # parameter index=2 restricts keyframe to dimension
+            obj.data.vertices[idx].co = all_verts[triangle_index][idx]
+            v.keyframe_insert('co', frame=triangle_index*2)  # parameter index=2 restricts keyframe to dimension
 
     # insert first keyframe after last one to yield cyclic animation
     # for idx,v in enumerate(obj.data.vertices):
     # 	obj.data.vertices[idx].co = all_verts[0][idx]
     # 	v.keyframe_insert('co', frame=60)
 
- 
 
-
-    """ Assign skin to mesh: Create material (barely understood copy and paste again) and set the image. 
-    Might work by manually setting the textures pixels to the pixels of a PIL.Image if it would actually
-    load non-empty .pcx files
-    idea/TODO: Write an own pcx loader from scratch ... """
+    # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
     texpath=0
-    for nameindex, tsurf_name in enumerate(my_object.tsurf_names):
-        tagged_surface_name = my_object.tsurf_names[nameindex].rstrip("\x00")
-        print("Embedded Tagged Surface Name: " +tagged_surface_name)
-        material_name = ("M_" + tagged_surface_name)#"\\".join(texture_path_unextended.split("\\")[-1:]))
+    for skin_index, skin in enumerate(my_object.skin_names):
+        
+        skin_name = my_object.skin_names[skin_index].rstrip("\x00")
+        print("Skin Name: " + skin_name)
+        material_name = ("M_" + skin_name)
         print("Blender Material name: " + material_name)
+        
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
         bsdf.inputs['Specular'].default_value = 0
         texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
+
         # Changed texture names to correspond with Tagged Surface names proceeded with 'M_'
         #texture_path_unextended = os.path.splitext(texture_path)[0] # remove extension (last one)
-        if(texpath < len(texture_paths)):
-            print("Material Texture: ", texture_paths[texpath])
-            texture_path = texture_paths[texpath]
+        if(texpath < len(my_object.texture_paths)):
+            print("Material Texture: ", my_object.texture_paths[texpath])
+            texture_path = my_object.texture_paths[texpath]
             path = Path(texture_path)
             if path.exists():
-                texImage.image = bpy.data.images.load(texture_paths[texpath])
+                texImage.image = bpy.data.images.load(my_object.texture_paths[texpath])
                 # again copy and paste
             else:
-                print("Cannot find texture " + texture_paths[i] + "!")
-                print("Check " +model_path+ " for .mda material texture file.")
-                texImage.image = bpy.data.images.load(texture_paths[texpath])
-                print("Assigning texture " + texture_paths[texpath])
+                print(f"Cannot find texture {my_object.texture_paths[triangle_index]}!")
+                print(f"Check {model_path} for .mda material texture file.")
+                texImage.image = bpy.data.images.load(my_object.texture_paths[texpath])
+                print(f"Assigning texture {my_object.texture_paths[texpath]}")
         else:
-            texImage.image = bpy.data.images.load(texture_paths[0])
-            print("Material Texture: ", texture_paths[0])
+            texImage.image = bpy.data.images.load(my_object.texture_paths[0])
+            print(f"Material Texture: {my_object.texture_paths[0]}")
 
-        texpath = texpath +1
+        texpath += 1
         mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
         obj.data.materials.append(mat)
 
-        # Added support to resize the model to the desired scale input at import screen
-        print("New model scale: ", model_scale)
-        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
-        
-        # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
-        obj.scale = (model_scale, model_scale, model_scale)
-        # Apply the scale to normalize the object after adjusting scale
-        # Doesn't work, but works fine in Blender scripting tab.  Race condition?
-        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-        
 
+
+
+
+    # If there are multiple textures, we need to reassign the triangles 
+    if len(my_object.skin_names) > 1:
+        bpy.context.tool_settings.mesh_select_mode = [False, False, True]
+        
+        for material_index, material in enumerate(obj.data.materials):
+            bpy.context.object.active_material_index = material_index
+
+            # print(f"Current material index: {bpy.context.object.active_material_index}")
+            bpy.ops.object.mode_set(mode = 'EDIT')
+            bpy.ops.mesh.select_all(action = 'DESELECT')
+            
+            skin_triangle_list = list()
+            # triangle is key, skin index is the value
+            for tri in my_object.triangle_skin_dict:
+                if my_object.triangle_skin_dict[tri] == material_index:
+                    # print(f"Appending triangle {tri} to list for skin {material_index}")
+                    skin_triangle_list.append(tri)
+
+
+            bpy.ops.object.mode_set(mode = 'OBJECT')
+            for face_idx, face in enumerate(mesh.polygons):
+                # mesh.polygons[face_idx].select = True
+                if face_idx in (skin_triangle_list):
+                    face.material_index = bpy.context.object.active_material_index
+
+            # TEST ------------------------------------
+            selected_count = 0
+            for face_idx, face in enumerate(mesh.polygons):
+                if mesh.polygons[face_idx].select == True:
+                    selected_count += 1
+            
+            print(f"Selected face count: {selected_count}")
+            # -----------------------------------------
+
+            bpy.ops.object.mode_set(mode = 'EDIT')
+            # bpy.ops.object.material_slot_assign()
+
+
+
+    bpy.ops.object.mode_set(mode = 'OBJECT')
+    # Added support to resize the model to the desired scale input at import screen
+    print("New model scale: ", model_scale)
+    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
+    
+    # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
+    obj.scale = (model_scale, model_scale, model_scale)
+    # Apply the scale to normalize the object after adjusting scale
+    # Doesn't work, but works fine in Blender scripting tab.  Race condition?
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        
 
     print("YAY NO ERRORS!!")
     return {'FINISHED'} # no idea, seems to be necessary for the UI
         
+
+
+
 """
 This part is required for the UI, to make the Addon appear under File > Import once it's
 activated and to have additional input fields in the file picking menu
