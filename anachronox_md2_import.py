@@ -358,7 +358,7 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
 
 
-def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary):
+def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary, texture_scale):
     """
     Loads UV (in Quake 2 terms, ST) coordinates
     :param texture_coordinate_bytes:
@@ -383,14 +383,14 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
 
 
     for coord_index, coord in enumerate(texture_coordinates):
-        coord.s = coord.s / skin_resolutions[texture_skin_dict[coord_index]][0]
-        coord.t = coord.t / skin_resolutions[texture_skin_dict[coord_index]][1]
+        coord.s = coord.s / (skin_resolutions[texture_skin_dict[coord_index]][0] / texture_scale)
+        coord.t = coord.t / (skin_resolutions[texture_skin_dict[coord_index]][1] / texture_scale)
 
 
     return texture_coordinates
 
 
-def load_file(path):
+def load_file(path, texture_scale):
     """
     Master function returning one dataclass object containing all the MD2 information
     :param path:
@@ -436,7 +436,7 @@ def load_file(path):
 
     triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
     
-    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary)
+    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, texture_scale)
     
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
@@ -462,7 +462,7 @@ from importlib import reload # required when a self-written module is imported t
 import os  # for checking if skin pathes exist
 
 
-def blender_load_md2(md2_path, displayed_name, model_scale):
+def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
     """
     This function uses the information from a md2 dataclass into a blender object.
     This will consist of an animated mesh and its material (which is not much more than the texture.
@@ -485,7 +485,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale):
     print("Model Filename: ", model_filename)
 
     # A dataclass containing all information stored in a .md2 file
-    my_object = load_file(md2_path)
+    my_object = load_file(md2_path, texture_scale)
 
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
@@ -686,13 +686,16 @@ class ImportSomeData(Operator, ImportHelper):
                                         default="",
                                         maxlen=1024)
     # Added support to resize the model to the desired scale input at import screen
-    model_scale: bpy.props.FloatProperty(name="New Scale",
-                                        description="Desired scale for the model.\nGood for recaling the model to fit other scale systems. I.E. .0254 is the scale for Unreal Engine.",
+    model_scale: bpy.props.FloatProperty(name="New Model Scale",
+                                        description="Desired scale for the model.\nGood for rescaling the model to fit other scale systems. I.E. .0254 is the scale for Unreal Engine.",
                                         default=.0254)
-                                        
+    # Add a texture scale value.  Use this to properly calculate the UV/ST data if someone wants to use an upscaled texture
+    texture_scale: bpy.props.FloatProperty(name="Texture Scale",
+                                        description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
+                                        default=1)                             
     
     def execute(self, context):
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale)
+        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale)
 
 
 # Only needed if you want to add into a dynamic menu
