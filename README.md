@@ -8,5 +8,7 @@ In Blender, go to Edit => Preferences, then select Add-ons.  Click "Install" and
 To use, go to File => Import, then select Anachronox Model Import (.md2), then select the model file.
 
 
-## TBD:
-Multiple skins per model (the texture coordinates do load but are not distributed between multiple materials automatically).
+Update:
+Plugin will now support loading models with multiple textures.  A material is created per texture and correctly assigned to the appropriate parts of the model
+![image](https://user-images.githubusercontent.com/29645865/210277081-265c5ab1-16d2-4cec-9808-503561bb80a7.png)
+
