@@ -428,23 +428,23 @@ def normalize_texture_coordinates(coordinates):
             if coord.s < .5 and min_s < .5:
                 # print("S Coordinate < .5:")
                 # print(f"old value: {coord}")
-                coord.s = coord.s + (low_s_shift * (.5 - coord.s / .5 - min_s)) * -1
+                coord.s = max(coord.s + (low_s_shift * (.5 - coord.s / .5 - min_s)) * -1, 0)
                 # print(f"new value: {coord}")
             elif coord.s > .5 and max_s > .5:
                 # print("S Coordinate > .5:")
                 # print(f"old value: {coord}")
-                coord.s = coord.s + (high_s_shift * (coord.s - .5) / max_s - .5) * -1
+                coord.s = min(coord.s + (high_s_shift * (coord.s - .5) / max_s - .5) * -1, 1.0)
                 # print(f"new value: {coord}")
 
             if coord.t < .5 and min_t < .5:
                 # print("T Coordinate < .5:")
                 # print(f"old value: {coord}")
-                coord.t = coord.t + (low_t_shift * (.5 - coord.t / .5 - min_t)) * -1
+                coord.t = max(coord.t + (low_t_shift * (.5 - coord.t / .5 - min_t)) * -1, 0)
                 # print(f"new value: {coord}")
             elif coord.t > .5 and max_t > .5:
                 # print("T Coordinate > .5:")
                 # print(f"old value: {coord}")
-                coord.t = coord.t + (high_t_shift * (coord.t - .5 / max_t - .5)) * -1
+                coord.t = min(coord.t + (high_t_shift * (coord.t - .5 / max_t - .5)) * -1, 1.0)
                 # print(f"new value: {coord}")
     else:
         print(f"Can't normalize texture coordinates, current S & T min & max values: {min_s}, {max_s}, {min_t}, {max_t}")
