@@ -358,7 +358,7 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
 
 
-def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary, texture_scale):
+def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary, texture_scale, fill_uv_region):
     """
     Loads UV (in Quake 2 terms, ST) coordinates
     :param texture_coordinate_bytes:
@@ -387,10 +387,72 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
         coord.t = coord.t / (skin_resolutions[texture_skin_dict[coord_index]][1] / texture_scale)
 
 
+
+    if fill_uv_region == True:
+        texture_coordinates = normalize_texture_coordinates(texture_coordinates)
+
     return texture_coordinates
 
 
-def load_file(path, texture_scale):
+
+def normalize_texture_coordinates(coordinates):
+    """
+    Fill out the UVs such that the lowest values hit 0 and the largest values hit 1
+    """
+
+    min_s = .5
+    max_s = .5
+    min_t = .5
+    max_t = .5
+
+    for coord in coordinates:
+        if coord.s < min_s:
+            min_s = coord.s
+        if coord.s > max_s:
+            max_s = coord.s
+        if coord.t < min_t:
+            min_t = coord.t
+        if coord.t > max_t:
+            max_t = coord.t
+
+    low_s_shift = min_s * -1
+    high_s_shift = 1 - (1 - max_s)
+    low_t_shift = min_t * -1
+    high_t_shift = 1 - (1 - max_t)
+
+    # Don't mess with this if the UVs don't even cross the middle of the image...just no...
+    if min_s != .5 and max_s != .5 and min_t != .5 and max_t != .5:
+        print("Normalizing texture coordinates")
+        for coord in coordinates:
+            # Mutliplication below in order to move the point less if closer to the center, completely if it's closest to the edge
+            if coord.s < .5 and min_s < .5:
+                # print("S Coordinate < .5:")
+                # print(f"old value: {coord}")
+                coord.s = coord.s + (low_s_shift * (.5 - coord.s / .5 - min_s)) * -1
+                # print(f"new value: {coord}")
+            elif coord.s > .5 and max_s > .5:
+                # print("S Coordinate > .5:")
+                # print(f"old value: {coord}")
+                coord.s = coord.s + (high_s_shift * (coord.s - .5) / max_s - .5) * -1
+                # print(f"new value: {coord}")
+
+            if coord.t < .5 and min_t < .5:
+                # print("T Coordinate < .5:")
+                # print(f"old value: {coord}")
+                coord.t = coord.t + (low_t_shift * (.5 - coord.t / .5 - min_t)) * -1
+                # print(f"new value: {coord}")
+            elif coord.t > .5 and max_t > .5:
+                # print("T Coordinate > .5:")
+                # print(f"old value: {coord}")
+                coord.t = coord.t + (high_t_shift * (coord.t - .5 / max_t - .5)) * -1
+                # print(f"new value: {coord}")
+    else:
+        print(f"Can't normalize texture coordinates, current S & T min & max values: {min_s}, {max_s}, {min_t}, {max_t}")
+
+    return coordinates
+
+
+def load_file(path, texture_scale, fill_uv_region):
     """
     Master function returning one dataclass object containing all the MD2 information
     :param path:
@@ -436,7 +498,7 @@ def load_file(path, texture_scale):
 
     triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
     
-    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, texture_scale)
+    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, texture_scale, fill_uv_region)
     
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
@@ -462,7 +524,7 @@ from importlib import reload # required when a self-written module is imported t
 import os  # for checking if skin pathes exist
 
 
-def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
+def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, fill_uv_region):
     """
     This function uses the information from a md2 dataclass into a blender object.
     This will consist of an animated mesh and its material (which is not much more than the texture.
@@ -485,7 +547,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
     print("Model Filename: ", model_filename)
 
     # A dataclass containing all information stored in a .md2 file
-    my_object = load_file(md2_path, texture_scale)
+    my_object = load_file(md2_path, texture_scale, fill_uv_region)
 
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
@@ -692,10 +754,17 @@ class ImportSomeData(Operator, ImportHelper):
     # Add a texture scale value.  Use this to properly calculate the UV/ST data if someone wants to use an upscaled texture
     texture_scale: bpy.props.FloatProperty(name="Texture Scale",
                                         description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
-                                        default=1)                             
+                                        default=1)          
+
+    fill_uv_region: bpy.props.BoolProperty(name="[BETA] Poster UV Fix (Do NOT apply to other models or if not needed)",
+                                        description="Some models seem to have UVs that end up incorreclty scaled and just shy of the edge (poster4.md2 is an example)\n\
+    This appears to be the s/t values with no obvious explanation\n\
+    Option provided here to scale to the edge of the UV map)",
+                                        default=False)
+
     
     def execute(self, context):
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale)
+        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.fill_uv_region)
 
 
 # Only needed if you want to add into a dynamic menu
