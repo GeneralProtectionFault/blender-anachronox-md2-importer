@@ -369,12 +369,12 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
     texture_coordinates = list()
 
     # It seems that lw2md2, used by the ION team, subtracts 1 before creating the S & T coordinates, which scales them incorrectly.  Compensate with this
-    coordinate_offset = 2
+    coordinate_offset = .5
 
     for i in range(header.num_st):
         current_coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
-        # current_coordinate.s += coordinate_offset
-        # current_coordinate.t += coordinate_offset
+        current_coordinate.s += coordinate_offset
+        current_coordinate.t += coordinate_offset
         texture_coordinates.append(current_coordinate)
     
 
@@ -393,8 +393,8 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
 
 
     for coord_index, coord in enumerate(texture_coordinates):
-        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale)-2)
-        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale)-2)
+        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale)-1)
+        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale)-1)
 
         # coord.s = coord.s / (skin_resolutions[texture_skin_dict[coord_index]][0] / texture_scale)
         # coord.t = coord.t / (skin_resolutions[texture_skin_dict[coord_index]][1] / texture_scale)
