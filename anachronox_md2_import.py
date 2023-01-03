@@ -358,18 +358,28 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
 
 
-def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary, texture_scale, fill_uv_region):
+def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary, texture_scale):
     """
     Loads UV (in Quake 2 terms, ST) coordinates
     :param texture_coordinate_bytes:
     :param header:
     :return: list of texture coordinate dataclass objects
     """
+
     texture_coordinates = list()
+
+    # It seems that lw2md2, used by the ION team, subtracts 1 before creating the S & T coordinates, which scales them incorrectly.  Compensate with this
+    coordinate_offset = 2
+
     for i in range(header.num_st):
         current_coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
+        # current_coordinate.s += coordinate_offset
+        # current_coordinate.t += coordinate_offset
         texture_coordinates.append(current_coordinate)
     
+
+    
+
     # If we have multiple textures...
     # if header.num_skins > 1:
         # Create dictionary to tie the texture coordinates to the skin via the triangles => skin relationship passed in
@@ -383,76 +393,17 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
 
 
     for coord_index, coord in enumerate(texture_coordinates):
-        coord.s = coord.s / (skin_resolutions[texture_skin_dict[coord_index]][0] / texture_scale)
-        coord.t = coord.t / (skin_resolutions[texture_skin_dict[coord_index]][1] / texture_scale)
+        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale)-2)
+        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale)-2)
 
+        # coord.s = coord.s / (skin_resolutions[texture_skin_dict[coord_index]][0] / texture_scale)
+        # coord.t = coord.t / (skin_resolutions[texture_skin_dict[coord_index]][1] / texture_scale)
 
-
-    if fill_uv_region == True:
-        texture_coordinates = normalize_texture_coordinates(texture_coordinates)
 
     return texture_coordinates
 
 
-
-def normalize_texture_coordinates(coordinates):
-    """
-    Fill out the UVs such that the lowest values hit 0 and the largest values hit 1
-    """
-
-    min_s = .5
-    max_s = .5
-    min_t = .5
-    max_t = .5
-
-    for coord in coordinates:
-        if coord.s < min_s:
-            min_s = coord.s
-        if coord.s > max_s:
-            max_s = coord.s
-        if coord.t < min_t:
-            min_t = coord.t
-        if coord.t > max_t:
-            max_t = coord.t
-
-    low_s_shift = min_s * -1
-    high_s_shift = 1 - (1 - max_s)
-    low_t_shift = min_t * -1
-    high_t_shift = 1 - (1 - max_t)
-
-    # Don't mess with this if the UVs don't even cross the middle of the image...just no...
-    if min_s != .5 and max_s != .5 and min_t != .5 and max_t != .5:
-        print("Normalizing texture coordinates")
-        for coord in coordinates:
-            # Mutliplication below in order to move the point less if closer to the center, completely if it's closest to the edge
-            if coord.s < .5 and min_s < .5:
-                # print("S Coordinate < .5:")
-                # print(f"old value: {coord}")
-                coord.s = max(coord.s + (low_s_shift * (.5 - coord.s / .5 - min_s)) * -1, 0)
-                # print(f"new value: {coord}")
-            elif coord.s > .5 and max_s > .5:
-                # print("S Coordinate > .5:")
-                # print(f"old value: {coord}")
-                coord.s = min(coord.s + (high_s_shift * (coord.s - .5) / max_s - .5) * -1, 1.0)
-                # print(f"new value: {coord}")
-
-            if coord.t < .5 and min_t < .5:
-                # print("T Coordinate < .5:")
-                # print(f"old value: {coord}")
-                coord.t = max(coord.t + (low_t_shift * (.5 - coord.t / .5 - min_t)) * -1, 0)
-                # print(f"new value: {coord}")
-            elif coord.t > .5 and max_t > .5:
-                # print("T Coordinate > .5:")
-                # print(f"old value: {coord}")
-                coord.t = min(coord.t + (high_t_shift * (coord.t - .5 / max_t - .5)) * -1, 1.0)
-                # print(f"new value: {coord}")
-    else:
-        print(f"Can't normalize texture coordinates, current S & T min & max values: {min_s}, {max_s}, {min_t}, {max_t}")
-
-    return coordinates
-
-
-def load_file(path, texture_scale, fill_uv_region):
+def load_file(path, texture_scale):
     """
     Master function returning one dataclass object containing all the MD2 information
     :param path:
@@ -498,7 +449,7 @@ def load_file(path, texture_scale, fill_uv_region):
 
     triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
     
-    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, texture_scale, fill_uv_region)
+    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, texture_scale)
     
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
@@ -524,7 +475,7 @@ from importlib import reload # required when a self-written module is imported t
 import os  # for checking if skin pathes exist
 
 
-def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, fill_uv_region):
+def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
     """
     This function uses the information from a md2 dataclass into a blender object.
     This will consist of an animated mesh and its material (which is not much more than the texture.
@@ -547,7 +498,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, fill_
     print("Model Filename: ", model_filename)
 
     # A dataclass containing all information stored in a .md2 file
-    my_object = load_file(md2_path, texture_scale, fill_uv_region)
+    my_object = load_file(md2_path, texture_scale)
 
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
@@ -756,15 +707,9 @@ class ImportSomeData(Operator, ImportHelper):
                                         description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
                                         default=1)          
 
-    fill_uv_region: bpy.props.BoolProperty(name="[BETA] Poster UV Fix",
-                                        description="DO NOT apply on other models or if not needed.  Some models seem to have UVs that end up incorreclty scaled and just shy of the edge (poster4.md2 is an example)\n\
-    This appears to be the s/t values with no obvious explanation\n\
-    Option provided here to scale to the edge of the UV map)",
-                                        default=False)
-
     
     def execute(self, context):
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.fill_uv_region)
+        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale)
 
 
 # Only needed if you want to add into a dynamic menu
