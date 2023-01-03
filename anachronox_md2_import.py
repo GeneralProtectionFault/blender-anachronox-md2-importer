@@ -756,8 +756,8 @@ class ImportSomeData(Operator, ImportHelper):
                                         description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
                                         default=1)          
 
-    fill_uv_region: bpy.props.BoolProperty(name="[BETA] Poster UV Fix (Do NOT apply to other models or if not needed)",
-                                        description="Some models seem to have UVs that end up incorreclty scaled and just shy of the edge (poster4.md2 is an example)\n\
+    fill_uv_region: bpy.props.BoolProperty(name="[BETA] Poster UV Fix",
+                                        description="DO NOT apply on other models or if not needed.  Some models seem to have UVs that end up incorreclty scaled and just shy of the edge (poster4.md2 is an example)\n\
     This appears to be the s/t values with no obvious explanation\n\
     Option provided here to scale to the edge of the UV map)",
                                         default=False)
