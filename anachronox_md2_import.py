@@ -287,28 +287,43 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
     model_path = '\\'.join(path.split('\\')[0:-1])+"\\"
     texture_paths = []
     skin_resolutions = {}
+    print("***TEXTURES***")
     for skin_index, skin_name in enumerate(skin_names):
         embedded_texture_name = skin_names[skin_index].rstrip("\x00")
         embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
-        print("Embedded Texture Name " +embedded_texture_name)
+        print("Embedded Texture Name " + embedded_texture_name)
         """ Look for existing file of given name and supported image format """
         supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
         for format in supported_image_formats:
             # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
             texture_path = model_path + embedded_texture_name_unextended + format
             if os.path.isfile(texture_path):
-                print("Texture found: " + texture_path)
 
                 # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
                 with PIL.Image.open(texture_path) as img:
                     width, height = img.size
                     skin_resolutions[skin_index] = img.size
-                    print(f"Texture resolution, {embedded_texture_name}: {skin_resolutions[skin_index]}")
+                    print("Texture found: " + texture_path + " " , skin_resolutions[skin_index])
+                    #print(f"Embedded texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}")
                 
                 break
             else:
-                print("Unable to locate texture " + model_path + embedded_texture_name_unextended+format + "!")
+                texture_path = model_path + embedded_texture_name_unextended + "\\" + embedded_texture_name_unextended + format
+                if os.path.isfile(texture_path):
+                    print("Texture found: " + texture_path, )
+    
+                    # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
+                    with PIL.Image.open(texture_path) as img:
+                        width, height = img.size
+                        skin_resolutions[skin_index] = img.size
+                        print("Texture found: " + texture_path + " " , skin_resolutions[skin_index])
+                        #print(f"Embedded texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}\n")
+               
+                    break
+            if not texture_path:
+                print("Unable to locate texture " + model_path + embedded_texture_name_unextended + format +"!")
         texture_paths.append(texture_path)
+    print("\n")
     
     print(f"Skin resolution info:\n{skin_resolutions}")
     return texture_paths, skin_resolutions
@@ -319,7 +334,7 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
     # Iterate over the GL COMMANDS
     # -> Iterate over the TRIANGLES
     # -> -> Iterate over the vertices of the current GL COMMAND
-    # -> -> If at least 2 of the vertex indices for that triangle are in the range of vertices for that gl command,
+    # -> -> If at 3 of the vertex indices for that triangle are in the range of vertices for that gl command,
     # ...associate that triangle with one skin or the other, depending on if the gl command is in the range specified
     
     # Dictionary to store which triangles each gl command will be associated with
@@ -335,13 +350,17 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
             for triangle_index, triangle in enumerate(triangles):
                 vertex_match_count = 0
-                # Check every vertex index to see if it's in any of the trianle vertex references
+                # Check every vertex index to see if it's in any of the triangle vertex references
                 # print(f"Iterating over vertices: {command.vertices}")
                 for vert in command.vertices:
-                    if triangle.vertexIndices[0] == vert.vertexIndex or triangle.vertexIndices[1] == vert.vertexIndex or triangle.vertexIndices[2] == vert.vertexIndex:
+                    if triangle.vertexIndices[0] == vert.vertexIndex:
                         # print(f"Vertex {vert} matches triangle {triangle_index}")
                         vertex_match_count += 1
-                
+                    if triangle.vertexIndices[1] == vert.vertexIndex:
+                        vertex_match_count += 1
+                    if triangle.vertexIndices[2] == vert.vertexIndex:
+                        vertex_match_count += 1
+
                 if vertex_match_count >= 3:
                     # Check if the current gl command index is in the ofs_prim => num_prim range, and assign the different skin accordingly
                     # if my_object.extra_data[0][1] <= command_index <= my_object.extra_data[0][1] + my_object.extra_data[0][0]:
@@ -354,6 +373,13 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
     # print(triangle_gl_commands)
     print(f"Total of {len(triangle_skin_dict)} triangles associated to a gl command.")
+
+    if len(triangle_skin_dict) < len(triangles):
+        print("Issue!  Not all triangles were derived from the gl command vertices!")
+        for triangle_index, triangle in enumerate(triangles):
+            if triangle_index not in triangle_skin_dict:
+                print(f"Triangle {triangle_index} is not in triangle=>skin dictionary!")
+
     return triangle_skin_dict
 
 
@@ -377,12 +403,6 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
         current_coordinate.t += coordinate_offset
         texture_coordinates.append(current_coordinate)
     
-
-    
-
-    # If we have multiple textures...
-    # if header.num_skins > 1:
-        # Create dictionary to tie the texture coordinates to the skin via the triangles => skin relationship passed in
     texture_skin_dict = {}
     for coord_index, coordinate in enumerate(texture_coordinates):
         for triangle_index, triangle in enumerate(triangles):
@@ -391,14 +411,10 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
     
     print(f"texture skin dictionary size: {len(texture_skin_dict)}")
 
-
     for coord_index, coord in enumerate(texture_coordinates):
+        # -1 here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
         coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale)-1)
         coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale)-1)
-
-        # coord.s = coord.s / (skin_resolutions[texture_skin_dict[coord_index]][0] / texture_scale)
-        # coord.t = coord.t / (skin_resolutions[texture_skin_dict[coord_index]][1] / texture_scale)
-
 
     return texture_coordinates
 
