@@ -7,6 +7,7 @@ bl_info = {
     "category": "Import-Export"
 }
 
+import os
 import sys
 from dataclasses import dataclass, fields
 import struct
@@ -196,12 +197,15 @@ def load_frames(frames_bytes, header):
         resolution_bytes = 3
 
     for current_frame_number in range(header.num_frames):
+        
+        frame_start = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number  
+
         # Get any scaling for this frame of animation
-        scale = vec3_t(*struct.unpack("<fff", frames_bytes[(40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number : (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 12]))
+        scale = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start : frame_start + 12]))
         # Get any movement for this frame of animation
-        translate = vec3_t(*struct.unpack("<fff", frames_bytes[(40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 12 : (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 24]))
+        translate = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start + 12 : frame_start + 24]))
         # Animation name
-        name = frames_bytes[(40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 24 : (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 40].decode("ascii", "ignore")
+        name = frames_bytes[frame_start + 24 : frame_start + 40].decode("ascii", "ignore")
         
 
         verts = list()
@@ -210,11 +214,11 @@ def load_frames(frames_bytes, header):
             #print(v)
             if header.resolution == 0 or header.resolution == 2:
                 # First mess is the vertex (vector)
-                vertex_start_index = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + 40 + v * (5 + resolution_bytes)
+                vertex_start_index = frame_start + 40 + v * (5 + resolution_bytes)
                 vertex_end_index = vertex_start_index + (3 + resolution_bytes)
                 # print(f"Vertex index range: {start_index}, {end_index}")
-                lightnormal_start_index = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + (43 + resolution_bytes) + v * (5 + resolution_bytes)
-                lightnormal_end_index = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number + (45 + resolution_bytes) + v * (5 + resolution_bytes)
+                lightnormal_start_index = frame_start + (43 + resolution_bytes) + v * (5 + resolution_bytes)
+                lightnormal_end_index = frame_start + (45 + resolution_bytes) + v * (5 + resolution_bytes)
 
                 # struct.unpack returns tuple--in this case, 3 bytes, which are coordinates for the vertex
                 verts.append(vertex_t(list(struct.unpack(unpack_format, frames_bytes[vertex_start_index : vertex_end_index])), # list() only for matching expected type 
@@ -222,8 +226,7 @@ def load_frames(frames_bytes, header):
 
             elif header.resolution == 1:
                 vertex_start_index = (40 + 6 * header.num_xyz) * current_frame_number + 40 + v * 6
-                vertex_end_index = vertex_start_index + 4
-                vertexBytes = int.from_bytes(frames_bytes[vertex_start_index : vertex_end_index], sys.byteorder)
+                vertexBytes = int.from_bytes(frames_bytes[vertex_start_index : vertex_start_index + 4], sys.byteorder)
                 # print(f"vertex bytes value: {vertexBytes}")
                 x = vertexBytes >> 0 & 0x000007ff
                 y = vertexBytes >> 11 & 0x000003ff
@@ -240,11 +243,11 @@ def load_frames(frames_bytes, header):
 
         name = name.rstrip("\x00")
         frame_names.append(name)
-        #print(scale, translate, name, verts)
+        # print(scale, translate, name, verts)
         frame = frame_t(scale, translate, name, verts)
-        #print("Frame: ",frame)
+        # print("Frame: ",frame)
         frames.append(frame)
-        #print("Frame names ", frame_names)
+        # print("Frame names ", frame_names)
 
     # print("Frame Names", frame_names) # write code to count the number of frames in each frame name
     return frames
@@ -292,40 +295,46 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
         embedded_texture_name = skin_names[skin_index].rstrip("\x00")
         embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
         print("Embedded Texture Name " + embedded_texture_name)
+        
         """ Look for existing file of given name and supported image format """
         supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
         for format in supported_image_formats:
             # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
             texture_path = model_path + embedded_texture_name_unextended + format
             if os.path.isfile(texture_path):
-
+            
                 # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
                 with PIL.Image.open(texture_path) as img:
                     width, height = img.size
                     skin_resolutions[skin_index] = img.size
                     print("Texture found: " + texture_path + " " , skin_resolutions[skin_index])
                     #print(f"Embedded texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}")
-                
+            
                 break
             else:
                 texture_path = model_path + embedded_texture_name_unextended + "\\" + embedded_texture_name_unextended + format
                 if os.path.isfile(texture_path):
                     print("Texture found: " + texture_path, )
-    
+            
                     # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
                     with PIL.Image.open(texture_path) as img:
                         width, height = img.size
                         skin_resolutions[skin_index] = img.size
                         print("Texture found: " + texture_path + " " , skin_resolutions[skin_index])
                         #print(f"Embedded texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}\n")
-               
+            
                     break
             if not texture_path:
                 print("Unable to locate texture " + model_path + embedded_texture_name_unextended + format +"!")
+
         texture_paths.append(texture_path)
     print("\n")
     
-    print(f"Skin resolution info:\n{skin_resolutions}")
+    if skin_resolutions:
+        print(f"Skin resolution info:\n{skin_resolutions}")
+    else:
+        skin_resolutions = {0: (64,64)}
+        print(f"No texture found! Using default resolution size:\n{skin_resolutions}")
     return texture_paths, skin_resolutions
 
 
@@ -394,15 +403,17 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
 
     texture_coordinates = list()
 
-    # It seems that lw2md2, used by the ION team, subtracts 1 before creating the S & T coordinates, which scales them incorrectly.  Compensate with this
-    coordinate_offset = .5
+    # It seems that lw2md2, used by the ION team, subtracts 1 before creating the S & T coordinates, which scales them incorrectly.  Compensate with this & scale offset below
+    coordinate_offset = 0
 
     for i in range(header.num_st):
         current_coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
         current_coordinate.s += coordinate_offset
         current_coordinate.t += coordinate_offset
         texture_coordinates.append(current_coordinate)
-    
+
+
+    scale_offset = -2
     texture_skin_dict = {}
     for coord_index, coordinate in enumerate(texture_coordinates):
         for triangle_index, triangle in enumerate(triangles):
@@ -413,8 +424,8 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
 
     for coord_index, coord in enumerate(texture_coordinates):
         # -1 here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
-        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale)-1)
-        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale)-1)
+        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale) + scale_offset)
+        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale) + scale_offset)
 
     return texture_coordinates
 
@@ -489,9 +500,29 @@ import bpy
 import sys
 from importlib import reload # required when a self-written module is imported that's edited simultaneously
 import os  # for checking if skin pathes exist
+import math
 
 
-def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
+def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
+
+    # First lets clean up our scene
+    if use_clean_scene:
+        for block in bpy.data.meshes:
+            if block.users == 0:
+                bpy.data.meshes.remove(block)
+
+        for block in bpy.data.materials:
+            if block.users == 0:
+                bpy.data.materials.remove(block)
+
+        for block in bpy.data.textures:
+            if block.users == 0:
+                bpy.data.textures.remove(block)
+
+        for block in bpy.data.images:
+            if block.users == 0:
+                bpy.data.images.remove(block)
+
     """
     This function uses the information from a md2 dataclass into a blender object.
     This will consist of an animated mesh and its material (which is not much more than the texture.
@@ -571,16 +602,16 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
                 
     """ Create animation for animated models: set keyframe for each vertex in each frame individually """
     # Create keyframes from first to last frame
-    for triangle_index in range(my_object.header.num_frames):
+    for frame_index in range(my_object.header.num_frames):
         for idx,v in enumerate(obj.data.vertices):
-            obj.data.vertices[idx].co = all_verts[triangle_index][idx]
-            v.keyframe_insert('co', frame=triangle_index*2)  # parameter index=2 restricts keyframe to dimension
+            obj.data.vertices[idx].co = all_verts[frame_index][idx]
+            v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
 
     # insert first keyframe after last one to yield cyclic animation
     # for idx,v in enumerate(obj.data.vertices):
     # 	obj.data.vertices[idx].co = all_verts[0][idx]
     # 	v.keyframe_insert('co', frame=60)
-
+    
 
     # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
     texpath=0
@@ -605,21 +636,16 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
             path = Path(texture_path)
             if path.exists():
                 texImage.image = bpy.data.images.load(my_object.texture_paths[texpath])
+                mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
                 # again copy and paste
             else:
                 print(f"Cannot find texture {my_object.texture_paths[triangle_index]}!")
                 print(f"Check {model_path} for .mda material texture file.")
-                texImage.image = bpy.data.images.load(my_object.texture_paths[texpath])
-                print(f"Assigning texture {my_object.texture_paths[texpath]}")
-        else:
-            texImage.image = bpy.data.images.load(my_object.texture_paths[0])
-            print(f"Material Texture: {my_object.texture_paths[0]}")
+                bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
 
         texpath += 1
         mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
         obj.data.materials.append(mat)
-
-
 
 
 
@@ -657,8 +683,6 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
             print(f"Selected face count: {selected_count}")
             # -----------------------------------------
 
-            bpy.ops.object.mode_set(mode = 'EDIT')
-            # bpy.ops.object.material_slot_assign()
 
 
 
@@ -669,9 +693,24 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale):
     
     # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
     obj.scale = (model_scale, model_scale, model_scale)
-    # Apply the scale to normalize the object after adjusting scale
-    # Doesn't work, but works fine in Blender scripting tab.  Race condition?
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+    bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+    bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+
+    if(apply_transforms):
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+    if(recalc_normals):
+        # go edit mode
+        bpy.ops.object.mode_set(mode='EDIT')
+        # select al faces
+        #bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
+        # recalculate outside normals 
+        bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
+        #bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
+        # go object mode again
+        bpy.ops.object.editmode_toggle()
+        
         
 
     print("YAY NO ERRORS!!")
@@ -723,9 +762,35 @@ class ImportSomeData(Operator, ImportHelper):
                                         description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
                                         default=1)          
 
+    # Added support to rotate the model to the desired scale input at import screen
+    x_rotate: bpy.props.FloatProperty(name="X-axis Rotate",
+                                        description="Rotation adjusment on X-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
+                                        soft_max=360,
+                                        soft_min=-360)
+    y_rotate: bpy.props.FloatProperty(name="Y-axis Rotate",
+                                        description="Rotation adjusment on Y-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
+                                        soft_max=360,
+                                        soft_min=-360)
+    z_rotate: bpy.props.FloatProperty(name="Z-axis Rotate",
+                                        description="Rotation adjusment on Z-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
+                                        soft_max=360,
+                                        soft_min=-360)
+ 
+    apply_transforms: BoolProperty(name="Apply transforms",
+                                        description="Applies the previous transforms.\nIf you need the scale and rotation transforms applied upon import select this.",
+                                        default=False)
+
+    recalc_normals: BoolProperty(name="Recalculate normals outside",
+                                        description="Recalculates normals outside.\nYou typically want this set.",
+                                        default=True)
+
+    use_clean_scene: BoolProperty(name="Clean Scene",
+                                        description="Clean the Blender scene of any unused data blocks including unused Materials, Textures and Names.\nYou typically want this set.",
+                                        default=True)
+
     
     def execute(self, context):
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale)
+        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
 
 
 # Only needed if you want to add into a dynamic menu
