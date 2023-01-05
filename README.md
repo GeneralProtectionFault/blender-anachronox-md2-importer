@@ -12,7 +12,7 @@ The original Anachronox models are stored in anoxdata\MODELS.dat, as found in th
 They can be extracted with the DATExtract tool as found on the Anachrodox website:  http://anachrodox.talonbrave.info/
 (Tools section)
 
-Direct link to the utility:
+Direct link to the utility (right-click & "Save Link As"):
 http://anachrodox.talonbrave.info/tools/tools/datextract2.zip
 
 
