@@ -687,17 +687,22 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
 
     # Apply new scale set on import screen
+    print("Seting to object mode...")
     bpy.ops.object.mode_set(mode = 'OBJECT')
-    print(f"New model scale: { model_scale}")
+    print("Setting origin to geometry...")
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
     # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
     obj.scale = (model_scale, model_scale, model_scale)
+    print(f"New model scale: { model_scale}")
+    print("New model scale applied...")
     bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
     bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
     bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+    print("Object rotated per selected parameters...")
 
     # Apply Transforms if option selected on import screen
     if(apply_transforms):
+        print("Applying transforms...")
         context = bpy.context
         ob = context.object
         mb = ob.matrix_basis
@@ -710,13 +715,14 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
     # Apply flip if option is selected on import screen
     if(recalc_normals):
+        print("Recalculating normals...")
         # go edit mode
         bpy.ops.object.mode_set(mode='EDIT')
         # select al faces
         bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
-        bpy.ops.mesh.flip_normals() # just flip normals
-        #bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
-        #bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
+        # bpy.ops.mesh.flip_normals() # just flip normals
+        bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
+        # bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
         # go object mode again
         bpy.ops.object.editmode_toggle()
         
@@ -730,7 +736,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
 """
 This part is required for the UI, to make the Addon appear under File > Import once it's
-activated and to have additional input fields in the file picking menu
+activated and to have additional input fields in the file picking menu  
 Code is taken from Templates > Python > Operator File Import in Text Editor
 The code here calls blender_load_md2
 """
