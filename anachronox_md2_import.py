@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import List
 import PIL
 from PIL import Image, ImagePath
+import bpy
+from importlib import reload # required when a self-written module is imported that's edited simultaneously
+import os  # for checking if skin pathes exist
+import math # for applying optional rotate on import
+
 """
 This part is used to load an md2 file into a MD2 dataclass object
 """
@@ -288,53 +293,46 @@ def load_header(file_bytes):
 
 def load_texture_paths_and_skin_resolutions(skin_names, path):
     model_path = '\\'.join(path.split('\\')[0:-1])+"\\"
-    texture_paths = []
+    texture_paths = {}
     skin_resolutions = {}
     print("***TEXTURES***")
     for skin_index, skin_name in enumerate(skin_names):
         embedded_texture_name = skin_names[skin_index].rstrip("\x00")
         embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
-        print("Embedded Texture Name " + embedded_texture_name)
-        
-        """ Look for existing file of given name and supported image format """
+        print(f"Embedded Texture Name {embedded_texture_name}")
+        """ Look for existing file of given name and supported image format"""
         supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
         for format in supported_image_formats:
-            # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
+            # Added support for autoloading textures from .md2 directory or a subdirectory with the same name as the embedded texture.
+            # and to name Blender mesh the same as .md2 filename if a Display Name is not entered on import screen - Creaper
             texture_path = model_path + embedded_texture_name_unextended + format
+            sub_texture_path = model_path + embedded_texture_name_unextended + "\\" + embedded_texture_name_unextended + format
             if os.path.isfile(texture_path):
             
                 # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
                 with PIL.Image.open(texture_path) as img:
                     width, height = img.size
                     skin_resolutions[skin_index] = img.size
-                    print("Texture found: " + texture_path + " " , skin_resolutions[skin_index])
-                    #print(f"Embedded texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}")
-            
+                    print(f"Texture found: {texture_path} {skin_resolutions[skin_index]}")
+                    texture_paths[skin_index] = texture_path 
                 break
-            else:
-                texture_path = model_path + embedded_texture_name_unextended + "\\" + embedded_texture_name_unextended + format
-                if os.path.isfile(texture_path):
-                    print("Texture found: " + texture_path, )
-            
+            elif os.path.isfile(sub_texture_path):
                     # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
-                    with PIL.Image.open(texture_path) as img:
-                        width, height = img.size
-                        skin_resolutions[skin_index] = img.size
-                        print("Texture found: " + texture_path + " " , skin_resolutions[skin_index])
-                        #print(f"Embedded texture resolution, {embedded_texture_name}: {my_object.skin_resolutions[embedded_texture_name]}\n")
-            
+                with PIL.Image.open(sub_texture_path) as img:
+                    width, height = img.size
+                    skin_resolutions[skin_index] = img.size
+                    print(f"Texture found: {sub_texture_path} {skin_resolutions[skin_index]}")
+                    texture_path = sub_texture_path
+                    texture_paths[skin_index] = texture_path
                     break
-            if not texture_path:
-                print("Unable to locate texture " + model_path + embedded_texture_name_unextended + format +"!")
-
-        texture_paths.append(texture_path)
+            else: # if a texture us not located insert a blank texture name into array so the 2nd texture doesn't get moved inplace of the 1st and assign a bum resolution so we don't crash Holonets calculations - Creaper
+                skin_resolutions[skin_index] = (64,64)
+                texture_paths[skin_index] = ""
+        if texture_paths[skin_index] == "":
+            print(f"Unable to locate texture for {model_path + embedded_texture_name}!")
     print("\n")
+    print(f"Skin resolution info:\n{skin_resolutions}")
     
-    if skin_resolutions:
-        print(f"Skin resolution info:\n{skin_resolutions}")
-    else:
-        skin_resolutions = {0: (64,64)}
-        print(f"No texture found! Using default resolution size:\n{skin_resolutions}")
     return texture_paths, skin_resolutions
 
 
@@ -440,7 +438,7 @@ def load_file(path, texture_scale):
         byte_list = f.read()  # stores all bytes in bytes1 variable (named like that to not interfere with builtin names
     header = load_header(byte_list)
     skin_names = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
-    #print("Skin Names ", skin_names)
+    # print(f"Skin Names {skin_names}")
 
     triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
     frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
@@ -494,16 +492,12 @@ def load_file(path, texture_scale):
 
 
 
-
-
-import bpy
-import sys
-from importlib import reload # required when a self-written module is imported that's edited simultaneously
-import os  # for checking if skin pathes exist
-import math
-
-
 def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
+
+    # If .md2 is missing print an error on screen. This tends to happen if you select an .md2 to load then select another directory path and then select import.
+    if not os.path.isfile(md2_path):
+        bpy.context.window_manager.popup_menu(missing_file, title="Error", icon='ERROR')
+        return {'FINISHED'} 
 
     # First lets clean up our scene
     if use_clean_scene:
@@ -536,13 +530,11 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         - Assign skin to mesh
     """
     """ Create MD2 dataclass object """
-    # ImageFile.LOAD_TRUNCATED_IMAGES = True # Necessary for loading jpgs with PIL
-    print("md2_path: ", md2_path)
-    #object_path = md2_path  # Kept for testing purposes
+    print(f"md2_path: {md2_path}")
     model_path = '\\'.join(md2_path.split('\\')[0:-1])+"\\"
-    print("Model Path: ", model_path)
+    print(f"Model Path: {model_path}")
     model_filename = "\\".join(md2_path.split("\\")[-1:])
-    print("Model Filename: ", model_filename)
+    print(f"Model Filename: {model_filename}")
 
     # A dataclass containing all information stored in a .md2 file
     my_object = load_file(md2_path, texture_scale)
@@ -563,13 +555,13 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         #   
         object_name = os.path.basename(md2_path).split('/')[-1]
         object_name = os.path.splitext(object_name)[0] # remove extension (last one)
-        print("Blender Outliner Object Name: ", object_name)
+        print(f"Blender Outliner Object Name: {object_name}")
         mesh = bpy.data.meshes.new(object_name)  # add the new mesh via filename
         
 
     else:
         object_name = [displayed_name]
-        print("Blender Outliner Object Name: ", displayed_name)
+        print(f"Blender Outliner Object Name: {displayed_name}")
         mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from Display Name input list
 
 
@@ -615,12 +607,11 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
     # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
     texpath=0
+    print("***MATERIALS***")
     for skin_index, skin in enumerate(my_object.skin_names):
         
-        skin_name = my_object.skin_names[skin_index].rstrip("\x00")
-        print("Skin Name: " + skin_name)
-        material_name = ("M_" + skin_name)
-        print("Blender Material name: " + material_name)
+        material_name = ("M_" + my_object.skin_names[skin_index].rstrip("\x00"))
+        print(f"Blender Material name: {material_name}")
         
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
@@ -628,20 +619,28 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         bsdf.inputs['Specular'].default_value = 0
         texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
 
-        # Changed texture names to correspond with Tagged Surface names proceeded with 'M_'
-        #texture_path_unextended = os.path.splitext(texture_path)[0] # remove extension (last one)
+        # Give an error and assign a purple color if all textures are missing
+        if(my_object.texture_paths == []):
+            # Give and error and assign a purple color if one texture is missing
+            print(f"Cannot find textures for {md2_path}!")
+            print(f"Check {model_path} for .mda material texture file.")
+            bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
+
         if(texpath < len(my_object.texture_paths)):
-            print("Material Texture: ", my_object.texture_paths[texpath])
-            texture_path = my_object.texture_paths[texpath]
-            path = Path(texture_path)
-            if path.exists():
-                texImage.image = bpy.data.images.load(my_object.texture_paths[texpath])
+            if(my_object.texture_paths[skin_index] == ''):
+                print(f"Material Texture: MISSING!")
+            else:
+                print(f"Material Texture: {my_object.texture_paths[skin_index]}")
+            if my_object.texture_paths[skin_index] != '':
+                texImage.image = bpy.data.images.load(my_object.texture_paths[skin_index])
                 mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
                 # again copy and paste
             else:
                 print(f"Cannot find texture {my_object.texture_paths[triangle_index]}!")
                 print(f"Check {model_path} for .mda material texture file.")
                 bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
+
+        #bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
 
         texpath += 1
         mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
@@ -683,30 +682,40 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
             print(f"Selected face count: {selected_count}")
             # -----------------------------------------
 
+            # bpy.ops.object.mode_set(mode = 'EDIT')
+            # bpy.ops.object.material_slot_assign()
 
 
-
+    # Apply new scale set on import screen
     bpy.ops.object.mode_set(mode = 'OBJECT')
-    # Added support to resize the model to the desired scale input at import screen
-    print("New model scale: ", model_scale)
+    print(f"New model scale: { model_scale}")
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
-    
     # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
     obj.scale = (model_scale, model_scale, model_scale)
     bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
     bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
     bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
 
+    # Apply Transforms if option selected on import screen
     if(apply_transforms):
-        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+        context = bpy.context
+        ob = context.object
+        mb = ob.matrix_basis
+        if hasattr(ob.data, "transform"):
+            ob.data.transform(mb)
+        for c in ob.children:
+            c.matrix_local = mb @ c.matrix_local
 
+        ob.matrix_basis.identity()     
+
+    # Apply flip if option is selected on import screen
     if(recalc_normals):
         # go edit mode
         bpy.ops.object.mode_set(mode='EDIT')
         # select al faces
-        #bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
-        # recalculate outside normals 
-        bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
+        bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
+        bpy.ops.mesh.flip_normals() # just flip normals
+        #bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
         #bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
         # go object mode again
         bpy.ops.object.editmode_toggle()
@@ -735,6 +744,9 @@ from bpy.types import Operator
 
 class ImportSomeData(Operator, ImportHelper):
     """Loads a Quake 2 MD2 File"""
+   
+    # Added a bunch of nifty import options so you do not have to do the same tasks 1000+ times when converting models to another engine. -  Creaper
+
     bl_idname = "import_md2.some_data"  # important since its how bpy.ops.import_test.some_data is constructed
     bl_label = "Import MD2"
 
@@ -776,14 +788,17 @@ class ImportSomeData(Operator, ImportHelper):
                                         soft_max=360,
                                         soft_min=-360)
  
+    # Added option to apply all of the above transforms. Some issue is making it not work quite right yet
     apply_transforms: BoolProperty(name="Apply transforms",
                                         description="Applies the previous transforms.\nIf you need the scale and rotation transforms applied upon import select this.",
                                         default=False)
 
-    recalc_normals: BoolProperty(name="Recalculate normals outside",
-                                        description="Recalculates normals outside.\nYou typically want this set.",
+    # Added option to flip normals as they seem to be inside upon import
+    recalc_normals: BoolProperty(name="Flip Normals",
+                                        description="Flip normals.\nYou typically want this set as Anachronox normals are opposite what they are in Blender.",
                                         default=True)
 
+    # Added option to clean the Blender scene of unused items do you don't end up with a bunch of stuff named .### and have to manually rename them
     use_clean_scene: BoolProperty(name="Clean Scene",
                                         description="Clean the Blender scene of any unused data blocks including unused Materials, Textures and Names.\nYou typically want this set.",
                                         default=True)
@@ -821,6 +836,8 @@ def unregister():
     bpy.utils.unregister_class(ImportSomeData)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
+def missing_file(self, context):
+    self.layout.label(text="Model file does not exist in currently selected directory! Perhaps you didn't select the correct .md2 file?")
 
 if __name__ == "__main__":
     
