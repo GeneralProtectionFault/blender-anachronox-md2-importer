@@ -800,9 +800,9 @@ class ImportSomeData(Operator, ImportHelper):
                                         default=False)
 
     # Added option to flip normals as they seem to be inside upon import
-    recalc_normals: BoolProperty(name="Flip Normals",
-                                        description="Flip normals.\nYou typically want this set as Anachronox normals are opposite what they are in Blender.",
-                                        default=True)
+    recalc_normals: BoolProperty(name="Recalc. Normals",
+                                        description="Recalculate normals-outside.\nYou typically want this set as Anachronox normals are opposite what they are in Blender.",
+                                        default=False)
 
     # Added option to clean the Blender scene of unused items do you don't end up with a bunch of stuff named .### and have to manually rename them
     use_clean_scene: BoolProperty(name="Clean Scene",
@@ -811,8 +811,10 @@ class ImportSomeData(Operator, ImportHelper):
 
     
     def execute(self, context):
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
-
+        try:
+            return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
+        except Exception as argument:
+            self.report({'ERROR'}, argument)
 
 # Only needed if you want to add into a dynamic menu
 def menu_func_import(self, context):
