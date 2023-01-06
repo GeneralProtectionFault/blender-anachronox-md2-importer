@@ -4,8 +4,7 @@
 https://github.com/lennart-g/blender-md2-importer
 
 ## Overview
-In Blender, go to Edit => Preferences, then select Add-ons.  Click "Install" and select the .py file.  This will install the plugin.
-To use, go to File => Import, then select Anachronox Model Import (.md2), then select the model file.
+Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
 
 ## Prerequisites
 The original Anachronox models are stored in anoxdata\MODELS.dat, as found in the installed game folder.
@@ -15,6 +14,14 @@ They can be extracted with the DATExtract tool as found on the Anachrodox websit
 Direct link to the utility (right-click & "Save Link As"--If this does not work, go to the site above, the Downloads Section, then Tools section):
 http://anachrodox.talonbrave.info/tools/tools/datextract2.zip
 
+## Instructions
+In Blender, go to Edit => Preferences, then select Add-ons.  Click "Install" and select the .py file.  This will install the plugin.
+To use, go to File => Import, then select Anachronox Model Import (.md2), then select the model file.
+
+Note that the MD2 file stores the name of the texture file in its header.  Therefore, the filename of the texture is important.  The extracted filenames from the .DAT file should correlate, but bear the importance in mind.  The plugin will search the immediate folders, but if a texture turns up missing, first ensure it is in the directory tree.
+
+### Modifying Textures
+When importing, there is a texture scale parameter which can be changed if desired.  If, for example, upscaling textures, simply set this to whatever factor they were upscaled by, and ensure that the filenames are the same as the originals.
 
 Update:
 Plugin will now support loading models with multiple textures.  A material is created per texture and correctly assigned to the appropriate parts of the model.
