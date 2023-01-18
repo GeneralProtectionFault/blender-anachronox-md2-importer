@@ -346,6 +346,9 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
     
     # Dictionary to store which triangles each gl command will be associated with
     triangle_skin_dict = {}
+    extra_data_index = 0
+
+    extra_data_total = extra_data[extra_data_index]
 
     # If there's only 1 skin, there will not be extra data or the need to separate triangles by skin
     if len(extra_data) < 1:
@@ -353,6 +356,7 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
             triangle_skin_dict[triangle_index] = 0
 
     else:
+        print("Extra data length > 1, handling multiple textures...")
         for command_index, command in enumerate(gl_commands):
 
             for triangle_index, triangle in enumerate(triangles):
@@ -369,14 +373,19 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
                         vertex_match_count += 1
 
                 if vertex_match_count >= 3:
-                    # Check if the current gl command index is in the ofs_prim => num_prim range, and assign the different skin accordingly
-                    # if my_object.extra_data[0][1] <= command_index <= my_object.extra_data[0][1] + my_object.extra_data[0][0]:
-                    if extra_data[0][0] <= command_index <= extra_data[0][0] + extra_data[0][1]:
-                        # print(f"gl command {command_index} within range, assigning triangle {triangle_index} to skin 0")
-                        triangle_skin_dict[triangle_index] = 1
-                    else:
-                        # print(f"gl command {command_index} not within range, assigning triangle {triangle_index} to skin 1")
-                        triangle_skin_dict[triangle_index] = 0
+                    triangle_skin_dict[triangle_index] = extra_data_index
+            
+            # Each extra data value is a number of gl commands to draw the given texture, NOT an offset
+            # So, in order to track when to switch, the extra data total will keep a record of the SUM of these values, so the (gl) command index 
+            # can be used to know when we've hit the gl command on which we should proceed to the next texture
+            if command_index + 1 == extra_data_total and command_index + 1 != len(gl_commands):
+                # print("Incrementing extra data index...")
+                # print(f"Gl command index: {command_index}, extra data value: {extra_data[extra_data_index]}")
+                extra_data_index += 1
+                extra_data_total += extra_data[extra_data_index]
+                # print(f"Extra data total: {extra_data_total}")
+
+
 
     # print(triangle_gl_commands)
     print(f"Total of {len(triangle_skin_dict)} triangles associated to a gl command.")
@@ -464,13 +473,14 @@ def load_file(path, texture_scale):
 
     extra_data = list()
     triangle_skin_dictionary = {}
+
     # If there's only 1 skin, this stuff will not exist and we'll have ourselves a crash, so only get this conditionally
     #if header.num_skins > 1:
     primitive_bytes = byte_list[header.ofs_prim : header.ofs_tsurf]
-    for i in range(header.num_prim - 1):
-        values = struct.unpack("<HH", primitive_bytes[(i * 2) : (i * 2) + 4])
-        extra_data.append(values)
-        print(f"Primitive value {i}: {values}")
+    for i in range(header.num_prim):
+        value = struct.unpack("<H", primitive_bytes[0 + (i * 2) : 0 + (i * 2) + 2])[0]
+        extra_data.append(value)
+        print(f"Extra data value {i+1}: Texture {i+1} applies to {value} gl commands...")
 
     triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
     
@@ -489,6 +499,17 @@ def load_file(path, texture_scale):
 
     model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_dictionary, vertices, triangle_skin_dictionary, extra_data, texture_paths)
     return model
+
+
+
+def findnth(string, substring, n):
+    """
+    Find the nth instance of a substring and return the index
+    """
+    parts = string.split(substring, n)
+    if len(parts) <= n:
+        return -1
+    return len(string) - len(parts[-1]) - len(substring)
 
 
 
@@ -516,6 +537,11 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         for block in bpy.data.images:
             if block.users == 0:
                 bpy.data.images.remove(block)
+
+        for block in bpy.data.actions:
+            if block.users == 0:
+                bpy.data.actions.remove(block)
+
 
     """
     This function uses the information from a md2 dataclass into a blender object.
@@ -593,8 +619,26 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
             uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
                 
     """ Create animation for animated models: set keyframe for each vertex in each frame individually """
-    # Create keyframes from first to last frame
-    for frame_index in range(my_object.header.num_frames):
+    # Frame names follow the format: amb_a_001, amb_a_002, etc...
+    # A new animation will have a new prefix
+    # bpy.context.area.type = "NLA_EDITOR"
+    # bpy.context.area.ui_type = "NLA_EDITOR"
+
+    animation_list = list()
+    current_anim_name = ""
+    for frame_index, frame in enumerate(my_object.frames):
+        anim_name = frame.name[ : findnth(frame.name, '_', 2)]
+        # print(f"Frame {frame_index} name: {anim_name}")
+
+        # Indicates we're on the next animation!
+        if anim_name != current_anim_name:
+            current_anim_name = anim_name
+            animation_list.append(anim_name)
+
+            # Create a new action for the new animation
+            # bpy.ops.nla.actionclip_add(action=f"{object_name}_{anim_name}")
+            # print(f"New action created: {object_name}_{anim_name}")
+
         for idx,v in enumerate(obj.data.vertices):
             obj.data.vertices[idx].co = all_verts[frame_index][idx]
             v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
@@ -624,11 +668,14 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
             # Give and error and assign a purple color if one texture is missing
             print(f"Cannot find textures for {md2_path}!")
             print(f"Check {model_path} for .mda material texture file.")
-            bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
+            bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
         if(texpath < len(my_object.texture_paths)):
+            # Give and error and assign a purple color if one texture is missing
             if(my_object.texture_paths[skin_index] == ''):
                 print(f"Material Texture: MISSING!")
+                bsdf.inputs['Base Color'].default_value = (1,0,1,1)
+
             else:
                 print(f"Material Texture: {my_object.texture_paths[skin_index]}")
             if my_object.texture_paths[skin_index] != '':
@@ -638,9 +685,10 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
             else:
                 print(f"Cannot find texture {my_object.texture_paths[triangle_index]}!")
                 print(f"Check {model_path} for .mda material texture file.")
-                bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
+                bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
-        #bsdf.inputs['Base Color'].default_value = (1,0,.5,1)
+        # Fall back to purple if we missed something or a triangle doesn't have a material assigned.
+        bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
         texpath += 1
         mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
@@ -672,15 +720,6 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
                 # mesh.polygons[face_idx].select = True
                 if face_idx in (skin_triangle_list):
                     face.material_index = bpy.context.object.active_material_index
-
-            # TEST ------------------------------------
-            selected_count = 0
-            for face_idx, face in enumerate(mesh.polygons):
-                if mesh.polygons[face_idx].select == True:
-                    selected_count += 1
-            
-            print(f"Selected face count: {selected_count}")
-            # -----------------------------------------
 
             # bpy.ops.object.mode_set(mode = 'EDIT')
             # bpy.ops.object.material_slot_assign()
@@ -727,7 +766,6 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         bpy.ops.object.editmode_toggle()
         
         
-
     print("YAY NO ERRORS!!")
     return {'FINISHED'} # no idea, seems to be necessary for the UI
         
@@ -811,10 +849,10 @@ class ImportSomeData(Operator, ImportHelper):
 
     
     def execute(self, context):
-        try:
-            return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
-        except Exception as argument:
-            self.report({'ERROR'}, argument)
+        # try:
+        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
+        # except Exception as argument:
+        #     self.report({'ERROR'}, str(argument))
 
 # Only needed if you want to add into a dynamic menu
 def menu_func_import(self, context):
