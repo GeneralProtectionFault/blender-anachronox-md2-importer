@@ -29,6 +29,9 @@ Plugin will now support loading models with multiple textures.  A material is cr
 ![image](https://user-images.githubusercontent.com/29645865/210277081-265c5ab1-16d2-4cec-9808-503561bb80a7.png)
 
 ## Information
+#### Note: For a breakdown of the header and data lump structure, see the Anachronox_MD2_Structure.ods spreadsheet.
+#### Also, for a visual representation of the structure of the frame bytes (structure varies depending on a flag in the header), specifically, see the draw.io diagram: MD2_FrameResolution.drawio
+
 The original model format (.MD2) is from Quake.  Anachronox uses a modified version of this model format, the critical difference being support for using multiple (in the real world, it does not appear they ever used more than 2) textures for 1 model.
 
 The original Quake MD2 format does support multiple *skins* which are stored in the header.  These are simply the names of the texture images.  This can be confusing, but the original purpose was to have interchangeable texture images that would essentially act as a palette swap.  This is repurposed in the Anachronox format, so that multiple textures can be applied to a single model simultaneously.  Instead of these "skins" being a single, swapable texture, they are applied to different regions of the model, corresponding to the gl commands that are used to draw the model.  This is the crux of the incompatibility between the Quake & Anachronox models.
