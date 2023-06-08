@@ -6,6 +6,9 @@ https://github.com/lennart-g/blender-md2-importer
 ## Overview
 Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
 
+*Please note that installing this addon to Blender will also install the pillow module in Blender's Python environment, which is needed for working with the image textures of the MD2 models.
+This is mentioned because it will pull from the internet.*
+
 ## Prerequisites
 The original Anachronox models are stored in anoxdata\MODELS.dat, as found in the installed game folder.
 They can be extracted with the DATExtract tool as found on the Anachrodox website:  http://anachrodox.talonbrave.info/
