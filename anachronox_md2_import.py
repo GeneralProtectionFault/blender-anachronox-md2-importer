@@ -7,18 +7,39 @@ bl_info = {
     "category": "Import-Export"
 }
 
+
+import bpy
 import os
 import sys
+import subprocess
 from dataclasses import dataclass, fields
 import struct
 from pathlib import Path
 from typing import List
+
+from importlib import reload # required when a self-written module is imported that's edited simultaneously
+import math # for applying optional rotate on import
+
+
+# path to python.exe
+python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
+
+# upgrade pip
+subprocess.call([python_exe, "-m", "ensurepip"])
+subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
+
+# install required packages
+try:
+    subprocess.call([python_exe, "-m", "pip", "install", "pillow"])
+
+except ImportError as argument:
+    print(f"ERROR: Pillow/PIL failed to install\n{argument}")
+
+
+
 import PIL
 from PIL import Image, ImagePath
-import bpy
-from importlib import reload # required when a self-written module is imported that's edited simultaneously
-import os  # for checking if skin pathes exist
-import math # for applying optional rotate on import
+
 
 """
 This part is used to load an md2 file into a MD2 dataclass object
@@ -860,30 +881,19 @@ def menu_func_import(self, context):
 
 # called when addon is activated (adds script to File > Import
 def register():
-    import subprocess
-    import sys
-    import os
-    
-    # path to python.exe
-    python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
-    
-    # upgrade pip
-    subprocess.call([python_exe, "-m", "ensurepip"])
-    subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
-    
-    # install required packages
-    subprocess.call([python_exe, "-m", "pip", "install", "pillow"])
-
     bpy.utils.register_class(ImportSomeData)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+
 
 # called when addon is deactivated (removed script from menu)
 def unregister():
     bpy.utils.unregister_class(ImportSomeData)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
+
 def missing_file(self, context):
     self.layout.label(text="Model file does not exist in currently selected directory! Perhaps you didn't select the correct .md2 file?")
+
 
 if __name__ == "__main__":
     
