@@ -14,6 +14,9 @@ The original Anachronox models are stored in anoxdata\MODELS.dat, as found in th
 They can be extracted with the DATExtract tool as found on the Anachrodox website:  http://anachrodox.talonbrave.info/
 (Tools section)
 
+UPDATE:  Thanks to the open source-ness of the original tool, I have made a more convenient GUI version in Python for extracting the DAT files here:
+https://github.com/GeneralProtectionFault/AnachronoxDAT
+
 Direct link to the utility (right-click & "Save Link As"--If this does not work, go to the site above, the Downloads Section, then Tools section):
 http://anachrodox.talonbrave.info/tools/tools/datextract2.zip
 
