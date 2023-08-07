@@ -24,9 +24,15 @@ import math # for applying optional rotate on import
 # path to python.exe
 python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
 
-# upgrade pip
-subprocess.call([python_exe, "-m", "ensurepip"])
-subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
+try:
+    # upgrade pip
+    subprocess.call([python_exe, "-m", "ensurepip"])
+    
+    # This doesn't jive well with Blender's Python environment for whatever reason...
+    # subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
+except Exception as argument:
+    print(f"Issue ensuring/upgrading pip:\n{argument}")
+
 
 # install required packages
 try:
@@ -623,7 +629,8 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
     """ Lots of code (copy and pasted) that creates a mesh and adds it to the scene collection/outlines """
     obj = bpy.data.objects.new(mesh.name, mesh)
-    col = bpy.data.collections.get("Collection")
+    # col = bpy.data.collections.get("Collection")
+    col = bpy.data.collections[0]
     col.objects.link(obj)
     bpy.context.view_layer.objects.active = obj
 
