@@ -19,6 +19,8 @@ from typing import List
 
 from importlib import reload # required when a self-written module is imported that's edited simultaneously
 import math # for applying optional rotate on import
+import mathutils
+from mathutils import Vector
 
 
 # path to python.exe
@@ -37,6 +39,7 @@ except Exception as argument:
 # install required packages
 try:
     subprocess.call([python_exe, "-m", "pip", "install", "pillow"])
+    subprocess.call([python_exe, "-m", "pip", "install", "mathutils"])
 
 except ImportError as argument:
     print(f"ERROR: Pillow/PIL failed to install\n{argument}")
@@ -205,7 +208,7 @@ def load_triangles(triangle_bytes, header):
     return triangles
 
 
-def load_frames(frames_bytes, header):
+def load_frames(frames_bytes, header, model_scale):
     """
     Loads frames
     :param frames_bytes: bytes from md2 file belonging to frames lump
@@ -234,16 +237,31 @@ def load_frames(frames_bytes, header):
 
         # Get any scaling for this frame of animation
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start : frame_start + 12]))
+        
+        
+        # print(scale)
         # Get any movement for this frame of animation
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start + 12 : frame_start + 24]))
+
+        # print(f"Scale Before: {scale}")
+        # print(f"Translate Before: {translate}")
+
+        ##### This applies the scaling set in the UI when importing ##############################################
+        scale = vec3_t(x = scale.x * model_scale, y = scale.y * model_scale, z = scale.z * model_scale)
+        translate = vec3_t(translate.x * model_scale, translate.y * model_scale, translate.z * model_scale)
+        ##########################################################################################################
+
+        # print(f"Scale After: {scale}")
+        # print(f"Translate After: {translate}")
+
         # Animation name
         name = frames_bytes[frame_start + 24 : frame_start + 40].decode("ascii", "ignore")
-        
 
         verts = list()
+        # print(f"Vertex Resolution: {header.resolution}")
+
         # Loop for the number of vertices
         for v in range(header.num_xyz):
-            #print(v)
             if header.resolution == 0 or header.resolution == 2:
                 # First mess is the vertex (vector)
                 vertex_start_index = frame_start + 40 + v * (5 + resolution_bytes)
@@ -253,8 +271,9 @@ def load_frames(frames_bytes, header):
                 lightnormal_end_index = frame_start + (45 + resolution_bytes) + v * (5 + resolution_bytes)
 
                 # struct.unpack returns tuple--in this case, 3 bytes, which are coordinates for the vertex
-                verts.append(vertex_t(list(struct.unpack(unpack_format, frames_bytes[vertex_start_index : vertex_end_index])), # list() only for matching expected type 
-                     *struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])))  
+                vector = list(struct.unpack(unpack_format, frames_bytes[vertex_start_index : vertex_end_index])) # list() only for matching expected typ
+                normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])
+
 
             elif header.resolution == 1:
                 vertex_start_index = (40 + 6 * header.num_xyz) * current_frame_number + 40 + v * 6
@@ -270,8 +289,9 @@ def load_frames(frames_bytes, header):
                 lightnormal_end_index = (40 + 6 * header.num_xyz) * current_frame_number + 46 + v * 6
                 normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])[0]
 
-                vertex = vertex_t(vector, normal)
-                verts.append(vertex)
+            vertex = vertex_t(vector, normal)
+            verts.append(vertex)
+            
 
         name = name.rstrip("\x00")
         frame_names.append(name)
@@ -464,7 +484,7 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
     return texture_coordinates
 
 
-def load_file(path, texture_scale):
+def load_file(path, texture_scale, model_scale):
     """
     Master function returning one dataclass object containing all the MD2 information
     :param path:
@@ -477,7 +497,7 @@ def load_file(path, texture_scale):
     # print(f"Skin Names {skin_names}")
 
     triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
-    frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
+    frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header, model_scale)
     texture_paths, skin_resolutions = load_texture_paths_and_skin_resolutions(skin_names, path)
 
     gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_end_fan])
@@ -590,7 +610,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     print(f"Model Filename: {model_filename}")
 
     # A dataclass containing all information stored in a .md2 file
-    my_object = load_file(md2_path, texture_scale)
+    my_object = load_file(md2_path, texture_scale, model_scale)
 
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
@@ -754,14 +774,25 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
 
     # Apply new scale set on import screen
+    # bpy.ops.view3d.snap_cursor_to_center({'area':view3d})
+    #bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
+    
+    #put cursor at origin 
+    #bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
+    #bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
+
     print("Seting to object mode...")
     bpy.ops.object.mode_set(mode = 'OBJECT')
     print("Setting origin to geometry...")
     bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
+    #print("Setting origin to cursor...")
+    #bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
     # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
-    obj.scale = (model_scale, model_scale, model_scale)
-    print(f"New model scale: { model_scale}")
-    print("New model scale applied...")
+    
+    # ***** REMOVED ****** This doesn't really work because it doesn't hit all the frames on animated models, done in the frames instead (scale & translate)
+    # obj.scale = (model_scale, model_scale, model_scale)
+    # print(f"New model scale: { model_scale}")
+    # print("New model scale applied...")
     bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
     bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
     bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
