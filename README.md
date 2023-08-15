@@ -22,7 +22,7 @@ UPDATE:  Thanks to the open source-ness of the original tool, I have made a more
 https://github.com/GeneralProtectionFault/AnachronoxDAT
 
 Direct link to the utility (right-click & "Save Link As"--If this does not work, go to the site above, the Downloads Section, then Tools section):
-http://anachrodox.talonbrave.info/tools/tools/datextract2.zip
+https://anachrodox.talonbrave.info/tools/tools/datextract2.zip
 
 ## Instructions
 In Blender, go to Edit => Preferences, then select Add-ons.  Click "Install" and select the .py file.  This will install the plugin.
