@@ -3,6 +3,10 @@
 ## Based on:
 https://github.com/lennart-g/blender-md2-importer
 
+## *** Known Issue(s) ***
+Currently, there is a bug which I do not know the source of, in which certain models will import, but have 0 size and not be visible in the 3D Viewport.  A few examples are PAL and the 4eyes models.
+Simply moving the animation player/timeline to a different frame, selecting the model in the Outliner, and tabbing in & out of Edit Mode will make the model appear.
+
 ## Overview
 Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
 
@@ -11,14 +15,14 @@ This is mentioned because it will pull from the internet.*
 
 ## Prerequisites
 The original Anachronox models are stored in anoxdata\MODELS.dat, as found in the installed game folder.
-They can be extracted with the DATExtract tool as found on the Anachrodox website:  http://anachrodox.talonbrave.info/
+They can be extracted with the DATExtract tool as found on the Anachrodox website:  https://anachrodox.talonbrave.info/
 (Tools section)
 
 UPDATE:  Thanks to the open source-ness of the original tool, I have made a more convenient GUI version in Python for extracting the DAT files here:
 https://github.com/GeneralProtectionFault/AnachronoxDAT
 
 Direct link to the utility (right-click & "Save Link As"--If this does not work, go to the site above, the Downloads Section, then Tools section):
-http://anachrodox.talonbrave.info/tools/tools/datextract2.zip
+https://anachrodox.talonbrave.info/tools/tools/datextract2.zip
 
 ## Instructions
 In Blender, go to Edit => Preferences, then select Add-ons.  Click "Install" and select the .py file.  This will install the plugin.
