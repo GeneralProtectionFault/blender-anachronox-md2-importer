@@ -1,11 +1,11 @@
-# Anachronox MD2 import add-on for Blender 3.x
+# Anachronox MD2 import add-on for Blender 4.x
 
 ## Based on:
 https://github.com/lennart-g/blender-md2-importer
 
 ## *** Known Issue(s) ***
-Currently, there is a bug which I do not know the source of, in which certain models will import, but have 0 size and not be visible in the 3D Viewport.  A few examples are PAL and the 4eyes models.
-Simply moving the animation player/timeline to a different frame, selecting the model in the Outliner, and tabbing in & out of Edit Mode will make the model appear.
+**Currently, there is a bug which I do not know the source of, in which certain models will import, but have 0 size and not be visible in the 3D Viewport.  A few examples are PAL and the 4eyes models.
+Simply moving the animation player/timeline to a different frame, selecting the model in the Outliner, and tabbing in & out of Edit Mode will make the model appear.**
 
 ## Overview
 Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
