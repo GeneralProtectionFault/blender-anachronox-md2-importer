@@ -50,6 +50,23 @@ import PIL
 from PIL import Image, ImagePath
 
 
+def startProgress(string):
+    print(string)
+    wm = bpy.context.window_manager
+    wm.progress_begin(0, 100)
+
+def endProgress():
+    wm = bpy.context.window_manager
+    wm.progress_update(100)
+    wm.progress_end()
+
+def showProgress(n, total, string=None):
+    pct = (100.0*n)/total
+    wm = bpy.context.window_manager
+    wm.progress_update(int(pct))
+    if string:
+        print(string)
+
 """
 This part is used to load an md2 file into a MD2 dataclass object
 """
@@ -562,9 +579,12 @@ def findnth(string, substring, n):
 
 def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
 
+    startProgress("Loading MD2...")
+
     # If .md2 is missing print an error on screen. This tends to happen if you select an .md2 to load then select another directory path and then select import.
     if not os.path.isfile(md2_path):
         bpy.context.window_manager.popup_menu(missing_file, title="Error", icon='ERROR')
+        endProgress()
         return {'FINISHED'} 
 
     # First lets clean up our scene
@@ -674,7 +694,12 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
     animation_list = list()
     current_anim_name = ""
+    frame_count = len(my_object.frames)
     for frame_index, frame in enumerate(my_object.frames):
+        # Update progress every 10 frames
+        if (frame_index % 10 == 0):
+            showProgress(frame_index, frame_count)
+
         anim_name = frame.name[ : findnth(frame.name, '_', 2)]
         # print(f"Frame {frame_index} name: {anim_name}")
 
@@ -831,6 +856,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         
         
     print("YAY NO ERRORS!!")
+    endProgress()
     return {'FINISHED'} # no idea, seems to be necessary for the UI
         
 
