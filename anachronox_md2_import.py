@@ -708,7 +708,12 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         mat = bpy.data.materials.new(name=material_name)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes["Principled BSDF"]
-        # bsdf.inputs['Specular'].default_value = 0
+
+        if (bpy.app.version < (4,0,0)):
+            bsdf.inputs['Specular'].default_value = 0
+        else:
+            bsdf.inputs['Specular IOR Level'].default_value = 0
+
         texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
 
         # Give an error and assign a purple color if all textures are missing
