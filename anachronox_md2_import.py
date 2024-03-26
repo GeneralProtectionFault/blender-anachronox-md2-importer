@@ -1,13 +1,3 @@
-bl_info = {
-    "name": "Anachronox: Experimental MD2 Importer",
-    "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "location": "File > Import > Anachronox (.md2)",
-    "version": (0, 1, 3),
-    "blender": (2, 80, 0),
-    "category": "Import-Export"
-}
-
-
 import bpy
 import os
 import sys
@@ -17,10 +7,14 @@ import struct
 from pathlib import Path
 from typing import List
 
+from .utils import startProgress, showProgress, endProgress, ModelVars, findnth
+
 from importlib import reload # required when a self-written module is imported that's edited simultaneously
 import math # for applying optional rotate on import
 # import mathutils
 # from mathutils import Vector
+
+from .Processor import QueueRunner
 
 
 # path to python.exe
@@ -49,23 +43,6 @@ except ImportError as argument:
 import PIL
 from PIL import Image, ImagePath
 
-
-def startProgress(string):
-    print(string)
-    wm = bpy.context.window_manager
-    wm.progress_begin(0, 100)
-
-def endProgress():
-    wm = bpy.context.window_manager
-    wm.progress_update(100)
-    wm.progress_end()
-
-def showProgress(n, total, string=None):
-    pct = (100.0*n)/total
-    wm = bpy.context.window_manager
-    wm.progress_update(int(pct))
-    if string:
-        print(string)
 
 """
 This part is used to load an md2 file into a MD2 dataclass object
@@ -566,18 +543,29 @@ def load_file(path, texture_scale, model_scale):
 
 
 
-def findnth(string, substring, n):
-    """
-    Find the nth instance of a substring and return the index
-    """
-    parts = string.split(substring, n)
-    if len(parts) <= n:
-        return -1
-    return len(string) - len(parts[-1]) - len(substring)
 
 
 
 def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
+    """
+    This function uses the information from a md2 dataclass into a blender object.
+    This will consist of an animated mesh and its material (which is not much more than the texture.
+    For better understanding, steps are:
+        - Create the MD2 object containing all information that's inside the loaded md2
+        - Get the absolute path of the UV map / skin to load
+        - Get necessary information about the mesh (vertices, tris, uv coordinates)
+        - Create the scene structure and create the mesh for the first frame
+        - Assign UV coordinates to each triangle
+        - Create shape animation (Add keyframe to each vertex)
+        - Assign skin to mesh
+    """
+    ModelVars.x_rotate = x_rotate
+    ModelVars.y_rotate = y_rotate
+    ModelVars.z_rotate = z_rotate
+    ModelVars.apply_transforms = apply_transforms
+    ModelVars.recalc_normals = recalc_normals
+    ModelVars.md2_path = md2_path
+
 
     startProgress("Loading MD2...")
 
@@ -610,27 +598,15 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
                 bpy.data.actions.remove(block)
 
 
-    """
-    This function uses the information from a md2 dataclass into a blender object.
-    This will consist of an animated mesh and its material (which is not much more than the texture.
-    For better understanding, steps are:
-        - Create the MD2 object containing all information that's inside the loaded md2
-        - Get the absolute path of the UV map / skin to load
-        - Get necessary information about the mesh (vertices, tris, uv coordinates)
-        - Create the scene structure and create the mesh for the first frame
-        - Assign UV coordinates to each triangle
-        - Create shape animation (Add keyframe to each vertex)
-        - Assign skin to mesh
-    """
     """ Create MD2 dataclass object """
     print(f"md2_path: {md2_path}")
-    model_path = '\\'.join(md2_path.split('\\')[0:-1])+"\\"
-    print(f"Model Path: {model_path}")
+    ModelVars.model_path = '\\'.join(md2_path.split('\\')[0:-1])+"\\"
+    print(f"Model Path: {ModelVars.model_path}")
     model_filename = "\\".join(md2_path.split("\\")[-1:])
     print(f"Model Filename: {model_filename}")
 
     # A dataclass containing all information stored in a .md2 file
-    my_object = load_file(md2_path, texture_scale, model_scale)
+    ModelVars.my_object = load_file(md2_path, texture_scale, model_scale)
 
     """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
     check for any image file with that path disregarding the file extension.
@@ -649,42 +625,43 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         object_name = os.path.basename(md2_path).split('/')[-1]
         object_name = os.path.splitext(object_name)[0] # remove extension (last one)
         print(f"Blender Outliner Object Name: {object_name}")
-        mesh = bpy.data.meshes.new(object_name)  # add the new mesh via filename
+        ModelVars.mesh = bpy.data.meshes.new(object_name)  # add the new mesh via filename
         
 
     else:
         object_name = [displayed_name]
         print(f"Blender Outliner Object Name: {displayed_name}")
-        mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from Display Name input list
+        ModelVars.mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from Display Name input list
 
 
     # List of vertices [x,y,z] for all frames extracted from the md2 object
-    all_verts = [[x.v for x in my_object.frames[y].verts] for y in range(my_object.header.num_frames)]
+    ModelVars.all_verts
+    ModelVars.all_verts = [[x.v for x in ModelVars.my_object.frames[y].verts] for y in range(ModelVars.my_object.header.num_frames)]
     # List of vertex indices forming a triangular face
-    tris = ([x.vertexIndices for x in my_object.triangles])
+    tris = ([x.vertexIndices for x in ModelVars.my_object.triangles])
     # uv coordinates (in q2 terms st coordinates) for projecting the skin on the model's faces
     # blender flips images upside down when loading so v = 1-t for blender imported images
-    uvs_others = ([(x.s, 1-x.t) for x in my_object.texture_coordinates]) 
+    uvs_others = ([(x.s, 1-x.t) for x in ModelVars.my_object.texture_coordinates]) 
     # blender uv coordinate system originates at lower left
 
     """ Lots of code (copy and pasted) that creates a mesh and adds it to the scene collection/outlines """
-    obj = bpy.data.objects.new(mesh.name, mesh)
+    ModelVars.obj = bpy.data.objects.new(ModelVars.mesh.name, ModelVars.mesh)
     # col = bpy.data.collections.get("Collection")
     col = bpy.data.collections[0]
-    col.objects.link(obj)
-    bpy.context.view_layer.objects.active = obj
+    col.objects.link(ModelVars.obj)
+    bpy.context.view_layer.objects.active = ModelVars.obj
 
     # Creates mesh by taking first frame's vertices and connects them via indices in tris
-    mesh.from_pydata(all_verts[0], [], tris) 
+    ModelVars.mesh.from_pydata(ModelVars.all_verts[0], [], tris) 
 
     """ UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
-    uv_layer=(mesh.uv_layers.new())
-    mesh.uv_layers.active = uv_layer
+    uv_layer=(ModelVars.mesh.uv_layers.new())
+    ModelVars.mesh.uv_layers.active = uv_layer
     # add uv coordinates to each polygon (here: triangle since md2 only stores vertices and triangles)
     # note: faces and vertices are stored exactly in the order they were added
-    for face_idx, face in enumerate(mesh.polygons):
+    for face_idx, face in enumerate(ModelVars.mesh.polygons):
         for idx, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
-            uv_layer.data[loop_idx].uv = uvs_others[my_object.triangles[face_idx].textureIndices[idx]]
+            uv_layer.data[loop_idx].uv = uvs_others[ModelVars.my_object.triangles[face_idx].textureIndices[idx]]
                 
     """ Create animation for animated models: set keyframe for each vertex in each frame individually """
     # Frame names follow the format: amb_a_001, amb_a_002, etc...
@@ -692,29 +669,34 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     # bpy.context.area.type = "NLA_EDITOR"
     # bpy.context.area.ui_type = "NLA_EDITOR"
 
-    animation_list = list()
-    current_anim_name = ""
-    frame_count = len(my_object.frames)
-    for frame_index, frame in enumerate(my_object.frames):
-        # Update progress every 10 frames
-        if (frame_index % 10 == 0):
-            showProgress(frame_index, frame_count)
+    ModelVars.animation_list = list()
+    ModelVars.current_anim_name = ""
+    frame_count = len(ModelVars.my_object.frames)
 
-        anim_name = frame.name[ : findnth(frame.name, '_', 2)]
-        # print(f"Frame {frame_index} name: {anim_name}")
+    # bpy.ops.wm.create_frames('INVOKE_DEFAULT')
 
-        # Indicates we're on the next animation!
-        if anim_name != current_anim_name:
-            current_anim_name = anim_name
-            animation_list.append(anim_name)
+    bpy.ops.amd2_import.macro()
 
-            # Create a new action for the new animation
-            # bpy.ops.nla.actionclip_add(action=f"{object_name}_{anim_name}")
-            # print(f"New action created: {object_name}_{anim_name}")
+    # for frame_index, frame in enumerate(my_object.frames):
+    #     # Update progress every 10 frames
+    #     if (frame_index % 10 == 0):
+    #         showProgress(frame_index, frame_count)
 
-        for idx,v in enumerate(obj.data.vertices):
-            obj.data.vertices[idx].co = all_verts[frame_index][idx]
-            v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
+    #     anim_name = frame.name[ : findnth(frame.name, '_', 2)]
+    #     # print(f"Frame {frame_index} name: {anim_name}")
+
+    #     # Indicates we're on the next animation!
+    #     if anim_name != current_anim_name:
+    #         current_anim_name = anim_name
+    #         animation_list.append(anim_name)
+
+    #         # Create a new action for the new animation
+    #         # bpy.ops.nla.actionclip_add(action=f"{object_name}_{anim_name}")
+    #         # print(f"New action created: {object_name}_{anim_name}")
+
+    #     for idx,v in enumerate(obj.data.vertices):
+    #         obj.data.vertices[idx].co = all_verts[frame_index][idx]
+    #         v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
 
     # insert first keyframe after last one to yield cyclic animation
     # for idx,v in enumerate(obj.data.vertices):
@@ -722,251 +704,145 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     # 	v.keyframe_insert('co', frame=60)
     
 
-    # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
-    texpath=0
-    print("***MATERIALS***")
-    for skin_index, skin in enumerate(my_object.skin_names):
+    # # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
+    # texpath=0
+    # print("***MATERIALS***")
+    # for skin_index, skin in enumerate(ModelVars.my_object.skin_names):
         
-        material_name = ("M_" + my_object.skin_names[skin_index].rstrip("\x00"))
-        print(f"Blender Material name: {material_name}")
+    #     material_name = ("M_" + ModelVars.my_object.skin_names[skin_index].rstrip("\x00"))
+    #     print(f"Blender Material name: {material_name}")
         
-        mat = bpy.data.materials.new(name=material_name)
-        mat.use_nodes = True
-        bsdf = mat.node_tree.nodes["Principled BSDF"]
+    #     mat = bpy.data.materials.new(name=material_name)
+    #     mat.use_nodes = True
+    #     bsdf = mat.node_tree.nodes["Principled BSDF"]
 
-        if (bpy.app.version < (4,0,0)):
-            bsdf.inputs['Specular'].default_value = 0
-        else:
-            bsdf.inputs['Specular IOR Level'].default_value = 0
+    #     if (bpy.app.version < (4,0,0)):
+    #         bsdf.inputs['Specular'].default_value = 0
+    #     else:
+    #         bsdf.inputs['Specular IOR Level'].default_value = 0
 
-        texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
+    #     texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
 
-        # Give an error and assign a purple color if all textures are missing
-        if(my_object.texture_paths == []):
-            # Give and error and assign a purple color if one texture is missing
-            print(f"Cannot find textures for {md2_path}!")
-            print(f"Check {model_path} for .mda material texture file.")
-            bsdf.inputs['Base Color'].default_value = (1,0,1,1)
+    #     # Give an error and assign a purple color if all textures are missing
+    #     if(ModelVars.my_object.texture_paths == []):
+    #         # Give and error and assign a purple color if one texture is missing
+    #         print(f"Cannot find textures for {md2_path}!")
+    #         print(f"Check {model_path} for .mda material texture file.")
+    #         bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
-        if(texpath < len(my_object.texture_paths)):
-            # Give and error and assign a purple color if one texture is missing
-            if(my_object.texture_paths[skin_index] == ''):
-                print(f"Material Texture: MISSING!")
-                bsdf.inputs['Base Color'].default_value = (1,0,1,1)
+    #     if(texpath < len(ModelVars.my_object.texture_paths)):
+    #         # Give and error and assign a purple color if one texture is missing
+    #         if(ModelVars.my_object.texture_paths[skin_index] == ''):
+    #             print(f"Material Texture: MISSING!")
+    #             bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
-            else:
-                print(f"Material Texture: {my_object.texture_paths[skin_index]}")
-            if my_object.texture_paths[skin_index] != '':
-                texImage.image = bpy.data.images.load(my_object.texture_paths[skin_index])
-                mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-                # again copy and paste
-            else:
-                print(f"Cannot find texture {my_object.texture_paths[triangle_index]}!")
-                print(f"Check {model_path} for .mda material texture file.")
-                bsdf.inputs['Base Color'].default_value = (1,0,1,1)
+    #         else:
+    #             print(f"Material Texture: {ModelVars.my_object.texture_paths[skin_index]}")
+    #         if ModelVars.my_object.texture_paths[skin_index] != '':
+    #             texImage.image = bpy.data.images.load(ModelVars.my_object.texture_paths[skin_index])
+    #             mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+    #             # again copy and paste
+    #         else:
+    #             # print(f"Cannot find texture {ModelVars.my_object.texture_paths[triangle_index]}!")
+    #             print(f"Check {model_path} for .mda material texture file.")
+    #             bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
-        # Fall back to purple if we missed something or a triangle doesn't have a material assigned.
-        bsdf.inputs['Base Color'].default_value = (1,0,1,1)
+    #     # Fall back to purple if we missed something or a triangle doesn't have a material assigned.
+    #     bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
-        texpath += 1
-        mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-        obj.data.materials.append(mat)
+    #     texpath += 1
+    #     mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+    #     ModelVars.obj.data.materials.append(mat)
 
 
 
-    # If there are multiple textures, we need to reassign the triangles 
-    if len(my_object.skin_names) > 1:
-        bpy.context.tool_settings.mesh_select_mode = [False, False, True]
+    # # If there are multiple textures, we need to reassign the triangles 
+    # if len(ModelVars.my_object.skin_names) > 1:
+    #     bpy.context.tool_settings.mesh_select_mode = [False, False, True]
         
-        for material_index, material in enumerate(obj.data.materials):
-            bpy.context.object.active_material_index = material_index
+    #     for material_index, material in enumerate(ModelVars.obj.data.materials):
+    #         bpy.context.object.active_material_index = material_index
 
-            # print(f"Current material index: {bpy.context.object.active_material_index}")
-            bpy.ops.object.mode_set(mode = 'EDIT')
-            bpy.ops.mesh.select_all(action = 'DESELECT')
+    #         # print(f"Current material index: {bpy.context.object.active_material_index}")
+    #         bpy.ops.object.mode_set(mode = 'EDIT')
+    #         bpy.ops.mesh.select_all(action = 'DESELECT')
             
-            skin_triangle_list = list()
-            # triangle is key, skin index is the value
-            for tri in my_object.triangle_skin_dict:
-                if my_object.triangle_skin_dict[tri] == material_index:
-                    # print(f"Appending triangle {tri} to list for skin {material_index}")
-                    skin_triangle_list.append(tri)
+    #         skin_triangle_list = list()
+    #         # triangle is key, skin index is the value
+    #         for tri in ModelVars.my_object.triangle_skin_dict:
+    #             if ModelVars.my_object.triangle_skin_dict[tri] == material_index:
+    #                 # print(f"Appending triangle {tri} to list for skin {material_index}")
+    #                 skin_triangle_list.append(tri)
 
 
-            bpy.ops.object.mode_set(mode = 'OBJECT')
-            for face_idx, face in enumerate(mesh.polygons):
-                # mesh.polygons[face_idx].select = True
-                if face_idx in (skin_triangle_list):
-                    face.material_index = bpy.context.object.active_material_index
+    #         bpy.ops.object.mode_set(mode = 'OBJECT')
+    #         for face_idx, face in enumerate(mesh.polygons):
+    #             # mesh.polygons[face_idx].select = True
+    #             if face_idx in (skin_triangle_list):
+    #                 face.material_index = bpy.context.object.active_material_index
 
-            # bpy.ops.object.mode_set(mode = 'EDIT')
-            # bpy.ops.object.material_slot_assign()
+    #         # bpy.ops.object.mode_set(mode = 'EDIT')
+    #         # bpy.ops.object.material_slot_assign()
 
 
-    # Apply new scale set on import screen
-    # bpy.ops.view3d.snap_cursor_to_center({'area':view3d})
-    #bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
+    # # Apply new scale set on import screen
+    # # bpy.ops.view3d.snap_cursor_to_center({'area':view3d})
+    # #bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
     
-    #put cursor at origin 
-    #bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
-    #bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
+    # #put cursor at origin 
+    # #bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
+    # #bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
 
-    print("Seting to object mode...")
-    bpy.ops.object.mode_set(mode = 'OBJECT')
-    print("Setting origin to geometry...")
-    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
-    #print("Setting origin to cursor...")
-    #bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-    # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
+    # print("Seting to object mode...")
+    # bpy.ops.object.mode_set(mode = 'OBJECT')
+    # print("Setting origin to geometry...")
+    # bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
+    # #print("Setting origin to cursor...")
+    # #bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+    # # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
     
-    # ***** REMOVED ****** This doesn't really work because it doesn't hit all the frames on animated models, done in the frames instead (scale & translate)
-    # obj.scale = (model_scale, model_scale, model_scale)
-    # print(f"New model scale: { model_scale}")
-    # print("New model scale applied...")
-    bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-    bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-    bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-    print("Object rotated per selected parameters...")
+    # # ***** REMOVED ****** This doesn't really work because it doesn't hit all the frames on animated models, done in the frames instead (scale & translate)
+    # # obj.scale = (model_scale, model_scale, model_scale)
+    # # print(f"New model scale: { model_scale}")
+    # # print("New model scale applied...")
+    # bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+    # bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+    # bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+    # print("Object rotated per selected parameters...")
 
-    # Apply Transforms if option selected on import screen
-    if(apply_transforms):
-        print("Applying transforms...")
-        context = bpy.context
-        ob = context.object
-        mb = ob.matrix_basis
-        if hasattr(ob.data, "transform"):
-            ob.data.transform(mb)
-        for c in ob.children:
-            c.matrix_local = mb @ c.matrix_local
+    # # Apply Transforms if option selected on import screen
+    # if(apply_transforms):
+    #     print("Applying transforms...")
+    #     context = bpy.context
+    #     ob = context.object
+    #     mb = ob.matrix_basis
+    #     if hasattr(ob.data, "transform"):
+    #         ob.data.transform(mb)
+    #     for c in ob.children:
+    #         c.matrix_local = mb @ c.matrix_local
 
-        ob.matrix_basis.identity()     
+    #     ob.matrix_basis.identity()     
 
-    # Apply flip if option is selected on import screen
-    if(recalc_normals):
-        print("Recalculating normals...")
-        # go edit mode
-        bpy.ops.object.mode_set(mode='EDIT')
-        # select al faces
-        bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
-        # bpy.ops.mesh.flip_normals() # just flip normals
-        bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
-        # bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
-        # go object mode again
-        bpy.ops.object.editmode_toggle()
+    # # Apply flip if option is selected on import screen
+    # if(recalc_normals):
+    #     print("Recalculating normals...")
+    #     # go edit mode
+    #     bpy.ops.object.mode_set(mode='EDIT')
+    #     # select al faces
+    #     bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
+    #     # bpy.ops.mesh.flip_normals() # just flip normals
+    #     bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
+    #     # bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
+    #     # go object mode again
+    #     bpy.ops.object.editmode_toggle()
         
         
-    print("YAY NO ERRORS!!")
+    # print("YAY NO ERRORS!!")
     endProgress()
     return {'FINISHED'} # no idea, seems to be necessary for the UI
         
 
 
 
-"""
-This part is required for the UI, to make the Addon appear under File > Import once it's
-activated and to have additional input fields in the file picking menu  
-Code is taken from Templates > Python > Operator File Import in Text Editor
-The code here calls blender_load_md2
-"""
-
-# ImportHelper is a helper class, defines filename and
-# invoke() function which calls the file selector.
-from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty, BoolProperty, EnumProperty
-from bpy.types import Operator
 
 
-class ImportSomeData(Operator, ImportHelper):
-    """Loads a Quake 2 MD2 File"""
-   
-    # Added a bunch of nifty import options so you do not have to do the same tasks 1000+ times when converting models to another engine. -  Creaper
-
-    bl_idname = "import_md2.some_data"  # important since its how bpy.ops.import_test.some_data is constructed
-    bl_label = "Import MD2"
-
-    ## ImportHelper mixin class uses this
-    #filename_ext = ".md2"
-
-    filter_glob: StringProperty(
-        default="*.md2", # only shows md2 files in opening screen
-        options={'HIDDEN'},
-        maxlen=255,  # Max internal buffer length, longer would be clamped.
-    )
-    
-    # List of operator properties, the attributes will be assigned
-    # to the class instance from the operator settings before calling.
-    displayed_name: bpy.props.StringProperty(name="Outliner name",
-                                        description="Desired model name in the outliner.\nGood for renaming model to coincide with entity.dat.",
-                                        default="",
-                                        maxlen=1024)
-    # Added support to resize the model to the desired scale input at import screen
-    model_scale: bpy.props.FloatProperty(name="New Model Scale",
-                                        description="Desired scale for the model.\nGood for rescaling the model to fit other scale systems. I.E. .0254 is the scale for Unreal Engine.",
-                                        default=.0254)
-    # Add a texture scale value.  Use this to properly calculate the UV/ST data if someone wants to use an upscaled texture
-    texture_scale: bpy.props.FloatProperty(name="Texture Scale",
-                                        description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
-                                        default=1)          
-
-    # Added support to rotate the model to the desired scale input at import screen
-    x_rotate: bpy.props.FloatProperty(name="X-axis Rotate",
-                                        description="Rotation adjusment on X-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
-                                        soft_max=360,
-                                        soft_min=-360)
-    y_rotate: bpy.props.FloatProperty(name="Y-axis Rotate",
-                                        description="Rotation adjusment on Y-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
-                                        soft_max=360,
-                                        soft_min=-360)
-    z_rotate: bpy.props.FloatProperty(name="Z-axis Rotate",
-                                        description="Rotation adjusment on Z-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
-                                        soft_max=360,
-                                        soft_min=-360)
- 
-    # Added option to apply all of the above transforms. Some issue is making it not work quite right yet
-    apply_transforms: BoolProperty(name="Apply transforms",
-                                        description="Applies the previous transforms.\nIf you need the scale and rotation transforms applied upon import select this.",
-                                        default=False)
-
-    # Added option to flip normals as they seem to be inside upon import
-    recalc_normals: BoolProperty(name="Recalc. Normals",
-                                        description="Recalculate normals-outside.\nYou typically want this set as Anachronox normals are opposite what they are in Blender.",
-                                        default=False)
-
-    # Added option to clean the Blender scene of unused items do you don't end up with a bunch of stuff named .### and have to manually rename them
-    use_clean_scene: BoolProperty(name="Clean Scene",
-                                        description="Clean the Blender scene of any unused data blocks including unused Materials, Textures and Names.\nYou typically want this set.",
-                                        default=True)
-
-    
-    def execute(self, context):
-        # try:
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
-        # except Exception as argument:
-        #     self.report({'ERROR'}, str(argument))
-
-# Only needed if you want to add into a dynamic menu
-def menu_func_import(self, context):
-    self.layout.operator(ImportSomeData.bl_idname, text="Anachronox Model Import (.md2)")
-
-# called when addon is activated (adds script to File > Import
-def register():
-    bpy.utils.register_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-
-
-# called when addon is deactivated (removed script from menu)
-def unregister():
-    bpy.utils.unregister_class(ImportSomeData)
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-
-
-def missing_file(self, context):
-    self.layout.label(text="Model file does not exist in currently selected directory! Perhaps you didn't select the correct .md2 file?")
-
-
-if __name__ == "__main__":
-    
-    register()
-
-    # test call
-    bpy.ops.import_md2.some_data('INVOKE_DEFAULT')
