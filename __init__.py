@@ -2,15 +2,13 @@
 bl_info = {
     "name": "Anachronox MD2 Model Importer",
     "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "version": (1,0,0),
+    "version": (1,0,1),
     "blender": (4,0,0),
     "location": "File > Import > Anachronox (.md2)",
     "description": "Import Anachronox variant of MD2 (Quake II) models",
     "warning": "",
-    "github_url": "https://github.com/GeneralProtectionFault/blender-anachronox-md2-importer"
-    # "doc_url": "https://bitbucket.org/Diffeomorphic/daz_rig/wiki/Home",
-    # "tracker_url": "https://bitbucket.org/Diffeomorphic/import_daz/issues?status=new&status=open",
-    # "category": "Rigging"
+    "github_url": "https://github.com/GeneralProtectionFault/blender-anachronox-md2-importer",
+    "doc_url": ""
     }
 
 
@@ -27,7 +25,7 @@ from bpy_extras.io_utils import ImportHelper
 from bpy.props import BoolProperty, StringProperty
 import bpy
 from .anachronox_md2_import import blender_load_md2
-from .Processor import WM_OT_create_frames, WM_OT_finalize_import, QueueRunner, WM_OT_dummy
+from .Processor import ImportAnimationFrames, ImportMaterials, QueueRunner
 
 
 #----------------------------------------------------------
@@ -45,7 +43,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
     bl_label = "Import MD2"
 
     ## ImportHelper mixin class uses this
-    #filename_ext = ".md2"
+    # filename_ext = ".md2"
 
     filter_glob: StringProperty(
         default="*.md2", # only shows md2 files in opening screen
@@ -90,7 +88,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
     # Added option to flip normals as they seem to be inside upon import
     recalc_normals: BoolProperty(name="Recalc. Normals",
                                         description="Recalculate normals-outside.\nYou typically want this set as Anachronox normals are opposite what they are in Blender.",
-                                        default=False)
+                                        default=True)
 
     # Added option to clean the Blender scene of unused items do you don't end up with a bunch of stuff named .### and have to manually rename them
     use_clean_scene: BoolProperty(name="Clean Scene",
@@ -99,10 +97,10 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
 
     
     def execute(self, context):
-        # try:
-        return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
-        # except Exception as argument:
-        #     self.report({'ERROR'}, str(argument))
+        try:
+            return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
+        except Exception as argument:
+            self.report({'ERROR'}, str(argument))
 
 
 
@@ -110,12 +108,9 @@ def menu_func_import(self, context):
     self.layout.operator(ImportSomeData.bl_idname, text="Anachronox Model Import (.md2)")
 
 
-
-
 classes = [
-    WM_OT_create_frames,
-    WM_OT_finalize_import,
-    WM_OT_dummy,
+    ImportAnimationFrames,
+    ImportMaterials,
     QueueRunner,
     ImportSomeData
 ]
@@ -124,12 +119,11 @@ def register():
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
     
     for cls in classes:
-        print(f'Registering: {cls}')
+        # print(f'Registering: {cls}')
         bpy.utils.register_class(cls)
 
-    QueueRunner.define("WM_OT_create_frames")    
-    # QueueRunner.define("WM_OT_dummy")
-    QueueRunner.define("WM_OT_finalize_import")
+    QueueRunner.define("WM_OT_import_animation_frames")
+    QueueRunner.define("WM_OT_import_materials")
 
 
 # called when addon is deactivated (removed script from menu)

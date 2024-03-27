@@ -1,7 +1,4 @@
 import bpy
-import os
-import sys
-import subprocess
 from dataclasses import dataclass, fields
 from typing import List
 import math
@@ -10,39 +7,19 @@ from .utils import ModelVars
 from .utils import startProgress, showProgress, endProgress, findnth
 
 
-from time import sleep
+class QueueRunner(bpy.types.Macro):
+    """
+    This macro will fire the operators in this file off in order to keep from locking things up.
+    (The frames take a bit of time to process)
+    """
+    bl_idname = "amd2_import.macro"
+    bl_label = "Anachronox MD2 Import Macro"
 
 
-retval = None
+class ImportAnimationFrames(bpy.types.Operator):
+    bl_idname = "wm.import_animation_frames"
+    bl_label = "Import Animation Frames"
 
-
-class WM_OT_dummy(bpy.types.Operator):
-    bl_idname = "wm.dummy"
-    bl_label = "Dummy"
-    
-    # def modal(self, context, event):
-    #     if self.finished:
-    #         return {'FINISHED'}
-    #     return {'PASS_THROUGH'}
-
-    # def invoke(self, context, event):
-    def execute(self, context):
-        print("Dummy Operator: Blender's Awful Programming Interface")
-        return {'FINISHED'}
-
-
-
-class WM_OT_create_frames(bpy.types.Operator):
-    bl_idname = "wm.create_frames"
-    bl_label = "Create Frames"
-    
-    # keep operator alive using modal while function runs
-    # def modal(self, context, event):
-    #     if self.finished:
-    #         return {'FINISHED'}
-    #     return {'PASS_THROUGH'}
-
-    # def invoke(self, context, event):
     def execute(self, context):
         self.finished = False
         frame_count = len(ModelVars.my_object.frames)
@@ -65,16 +42,14 @@ class WM_OT_create_frames(bpy.types.Operator):
                 ModelVars.animation_list.append(anim_name)
 
                 # Create a new action for the new animation
-                # bpy.ops.nla.actionclip_add(action=f"{object_name}_{anim_name}")
-                # print(f"New action created: {object_name}_{anim_name}")
+                # bpy.ops.nla.actionclip_add(action=f"{ModelVars.object_name}_{anim_name}")
+                # print(f"New action created: {ModelVars.object_name}_{anim_name}")
 
             for idx,v in enumerate(ModelVars.obj.data.vertices):
                 ModelVars.obj.data.vertices[idx].co = ModelVars.all_verts[frame_index][idx]
                 success = v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
                 if not success:
                     print(f'Keyframe insert failed, Frame: {frame_index}')
-
-            # return {'RUNNING_MODAL'}
 
         bpy.ops.object.mode_set(mode = 'OBJECT')
         return {'FINISHED'}
@@ -83,17 +58,10 @@ class WM_OT_create_frames(bpy.types.Operator):
 
 
 
-class WM_OT_finalize_import(bpy.types.Operator):
-    bl_idname = "wm.finalize_import"
-    bl_label = "Finalize Import"
+class ImportMaterials(bpy.types.Operator):
+    bl_idname = "wm.import_materials"
+    bl_label = "Import Materials"
     
-    # keep operator alive using modal while function runs
-    # def modal(self, context, event):
-    #     if self.finished:
-    #         return {'FINISHED'}
-    #     return {'PASS_THROUGH'}
-
-    # def invoke(self, context, event):
     def execute(self, context):
         self.finished = False
         
@@ -167,7 +135,6 @@ class WM_OT_finalize_import(bpy.types.Operator):
                         # print(f"Appending triangle {tri} to list for skin {material_index}")
                         skin_triangle_list.append(tri)
 
-
                 bpy.ops.object.mode_set(mode = 'OBJECT')
                 for face_idx, face in enumerate(ModelVars.mesh.polygons):
                     # mesh.polygons[face_idx].select = True
@@ -180,18 +147,18 @@ class WM_OT_finalize_import(bpy.types.Operator):
 
         # Apply new scale set on import screen
         # bpy.ops.view3d.snap_cursor_to_center({'area':view3d})
-        #bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
+        # bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
         
-        #put cursor at origin 
-        #bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
-        #bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
+        # put cursor at origin 
+        # bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
+        # bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
 
         print("Seting to object mode...")
         bpy.ops.object.mode_set(mode = 'OBJECT')
         print("Setting origin to geometry...")
         bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
-        #print("Setting origin to cursor...")
-        #bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+        # print("Setting origin to cursor...")
+        # bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
         # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
         
         # ***** REMOVED ****** This doesn't really work because it doesn't hit all the frames on animated models, done in the frames instead (scale & translate)
@@ -229,19 +196,12 @@ class WM_OT_finalize_import(bpy.types.Operator):
             # go object mode again
             bpy.ops.object.editmode_toggle()
             
-            
         print("YAY NO ERRORS!!")
-
-        # wm = context.window_manager
-        # wm.modal_handler_add(self)
-        # return {'RUNNING_MODAL'}
         return {'FINISHED'}
   
 
 
 
-class QueueRunner(bpy.types.Macro):
-    bl_idname = "amd2_import.macro"
-    bl_label = "Anachronox MD2 Import Macro"
+
 
 

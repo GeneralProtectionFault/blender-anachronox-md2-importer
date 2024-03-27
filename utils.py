@@ -15,6 +15,7 @@ class ModelVars(object):
     z_rotate = 0
     apply_transforms = True
     recalc_normals = False
+    object_name = ""
 
 
 def startProgress(string):

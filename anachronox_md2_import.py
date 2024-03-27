@@ -210,9 +210,9 @@ def load_frames(frames_bytes, header, model_scale):
     :return: list of frame dataclass objects
     """
     # # check if header.ofs_glcmds - header.ofs_frames == header.num_frames*(40+4*header.num_xyz) # #
-    #print("len", len(frames_bytes))
-    #print("frames", header.num_frames)
-    #print("check", header.num_frames*(40+4*header.num_xyz))
+    # print("len", len(frames_bytes))
+    # print("frames", header.num_frames)
+    # print("check", header.num_frames*(40+4*header.num_xyz))
     frames = list()
     frame_names = list()
     if header.resolution == 0: # vertex information in 3 bytes (8 bit vertices)
@@ -322,10 +322,12 @@ def load_header(file_bytes):
     print("--------------------------------------------------")
 
     # Extra Data
-    # For each skin, there is a short betwen the end of the glcommands - beginning of the tagged surfaces (Meaning currently unclear but probably opengl-related)
-    # This does not appear to be in the header info, but can be derived form it.  These values will be placed here, and could be added to the md2_object if necessary
+    # After the gl commands lump, there is a short (2 bytes) number for each skin/texture for the model.
+    # Each number represents the number of gl commands (not vertices or frames) which the corresponding texture applies to.
+    # Simplifying, each gl command is essentially a triangle, but in the order of how open gl would draw them, not the vertex order.
     
-    # This also means the offset primitives is the same as the ofs_end_fan value (should act as a check)
+    # Prim is abbreviating "primitive," which is another way to refer to a gl command, as it ends up being a primitive shape/polygon.
+    # In the case of Quake II/Anachronox models being dealt with here, triangles only.
     header.num_prim = header.num_skins
     header.ofs_prim = header.ofs_glcmds + (4 * header.num_glcmds)
 
@@ -349,7 +351,6 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
             texture_path = model_path + embedded_texture_name_unextended + format
             sub_texture_path = model_path + embedded_texture_name_unextended + "\\" + embedded_texture_name_unextended + format
             if os.path.isfile(texture_path):
-            
                 # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
                 with PIL.Image.open(texture_path) as img:
                     width, height = img.size
@@ -365,8 +366,8 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
                     print(f"Texture found: {sub_texture_path} {skin_resolutions[skin_index]}")
                     texture_path = sub_texture_path
                     texture_paths[skin_index] = texture_path
-                    break
-            else: # if a texture us not located insert a blank texture name into array so the 2nd texture doesn't get moved inplace of the 1st and assign a bum resolution so we don't crash Holonets calculations - Creaper
+                break
+            else: # if a texture is not located insert a blank texture name into array so the 2nd texture doesn't get moved inplace of the 1st and assign a bum resolution so we don't crash Holonets calculations - Creaper
                 skin_resolutions[skin_index] = (64,64)
                 texture_paths[skin_index] = ""
         if texture_paths[skin_index] == "":
@@ -379,12 +380,19 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
 
 
 def load_triangle_gl_list(gl_commands, triangles, extra_data):
-    # Iterate over the GL COMMANDS
-    # -> Iterate over the TRIANGLES
-    # -> -> Iterate over the vertices of the current GL COMMAND
-    # -> -> If at 3 of the vertex indices for that triangle are in the range of vertices for that gl command,
-    # ...associate that triangle with one skin or the other, depending on if the gl command is in the range specified
-    
+    """
+    This creates a mapping between the gl commands and the triangles.  For models with multiple textures, this is necessary
+    because the "extra data" lump indicates how many gl commands the corresponding texture applies to, and these draw calls do not follow the 
+    vertex order that we can get from frame data.
+
+    Iterate over the GL COMMANDS
+    -> Iterate over the TRIANGLES
+    -> -> Iterate over the vertices of the current GL COMMAND
+    -> -> If 3 of the vertex indices for that triangle are in the range of vertices for that gl command,
+    ...associate that triangle with the appropriate gl command.
+    Later, this list is how we will map the triangles to the textures.
+    """
+
     # Dictionary to store which triangles each gl command will be associated with
     triangle_skin_dict = {}
     extra_data_index = 0
@@ -426,8 +434,6 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
                 extra_data_total += extra_data[extra_data_index]
                 # print(f"Extra data total: {extra_data_total}")
 
-
-
     # print(triangle_gl_commands)
     print(f"Total of {len(triangle_skin_dict)} triangles associated to a gl command.")
 
@@ -459,7 +465,6 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
         current_coordinate.s += coordinate_offset
         current_coordinate.t += coordinate_offset
         texture_coordinates.append(current_coordinate)
-
 
     scale_offset = -2
     texture_skin_dict = {}
@@ -515,8 +520,6 @@ def load_file(path, texture_scale, model_scale):
     extra_data = list()
     triangle_skin_dictionary = {}
 
-    # If there's only 1 skin, this stuff will not exist and we'll have ourselves a crash, so only get this conditionally
-    #if header.num_skins > 1:
     primitive_bytes = byte_list[header.ofs_prim : header.ofs_tsurf]
     for i in range(header.num_prim):
         value = struct.unpack("<H", primitive_bytes[0 + (i * 2) : 0 + (i * 2) + 2])[0]
@@ -533,16 +536,12 @@ def load_file(path, texture_scale, model_scale):
             frames[i_frame].verts[i_vert].v[1] = frames[i_frame].verts[i_vert].v[1] * frames[i_frame].scale.y + frames[i_frame].translate.y
             frames[i_frame].verts[i_vert].v[2] = frames[i_frame].verts[i_vert].v[2] * frames[i_frame].scale.z + frames[i_frame].translate.z
 
-    # vertices = [x.v for x in frames[0].verts]
     vertices = list()
     for i, vert in enumerate(frames[0].verts):
         vertices.append(vertex_indexed(i, vert))
 
     model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_dictionary, vertices, triangle_skin_dictionary, extra_data, texture_paths)
     return model
-
-
-
 
 
 
@@ -622,16 +621,16 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
         # object_name_test = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
         #   
-        object_name = os.path.basename(md2_path).split('/')[-1]
-        object_name = os.path.splitext(object_name)[0] # remove extension (last one)
-        print(f"Blender Outliner Object Name: {object_name}")
-        ModelVars.mesh = bpy.data.meshes.new(object_name)  # add the new mesh via filename
+        ModelVars.object_name = os.path.basename(md2_path).split('/')[-1]
+        ModelVars.object_name = os.path.splitext(ModelVars.object_name)[0] # remove extension (last one)
+        print(f"Blender Outliner Object Name: {ModelVars.object_name}")
+        ModelVars.mesh = bpy.data.meshes.new(ModelVars.object_name)  # add the new mesh via filename
         
 
     else:
-        object_name = [displayed_name]
+        ModelVars.object_name = [displayed_name]
         print(f"Blender Outliner Object Name: {displayed_name}")
-        ModelVars.mesh = bpy.data.meshes.new(*object_name)  # add the new mesh, * extracts string from Display Name input list
+        ModelVars.mesh = bpy.data.meshes.new(*ModelVars.object_name)  # add the new mesh, * extracts string from Display Name input list
 
 
     # List of vertices [x,y,z] for all frames extracted from the md2 object
@@ -677,167 +676,6 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
     bpy.ops.amd2_import.macro()
 
-    # for frame_index, frame in enumerate(my_object.frames):
-    #     # Update progress every 10 frames
-    #     if (frame_index % 10 == 0):
-    #         showProgress(frame_index, frame_count)
-
-    #     anim_name = frame.name[ : findnth(frame.name, '_', 2)]
-    #     # print(f"Frame {frame_index} name: {anim_name}")
-
-    #     # Indicates we're on the next animation!
-    #     if anim_name != current_anim_name:
-    #         current_anim_name = anim_name
-    #         animation_list.append(anim_name)
-
-    #         # Create a new action for the new animation
-    #         # bpy.ops.nla.actionclip_add(action=f"{object_name}_{anim_name}")
-    #         # print(f"New action created: {object_name}_{anim_name}")
-
-    #     for idx,v in enumerate(obj.data.vertices):
-    #         obj.data.vertices[idx].co = all_verts[frame_index][idx]
-    #         v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
-
-    # insert first keyframe after last one to yield cyclic animation
-    # for idx,v in enumerate(obj.data.vertices):
-    # 	obj.data.vertices[idx].co = all_verts[0][idx]
-    # 	v.keyframe_insert('co', frame=60)
-    
-
-    # # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
-    # texpath=0
-    # print("***MATERIALS***")
-    # for skin_index, skin in enumerate(ModelVars.my_object.skin_names):
-        
-    #     material_name = ("M_" + ModelVars.my_object.skin_names[skin_index].rstrip("\x00"))
-    #     print(f"Blender Material name: {material_name}")
-        
-    #     mat = bpy.data.materials.new(name=material_name)
-    #     mat.use_nodes = True
-    #     bsdf = mat.node_tree.nodes["Principled BSDF"]
-
-    #     if (bpy.app.version < (4,0,0)):
-    #         bsdf.inputs['Specular'].default_value = 0
-    #     else:
-    #         bsdf.inputs['Specular IOR Level'].default_value = 0
-
-    #     texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
-
-    #     # Give an error and assign a purple color if all textures are missing
-    #     if(ModelVars.my_object.texture_paths == []):
-    #         # Give and error and assign a purple color if one texture is missing
-    #         print(f"Cannot find textures for {md2_path}!")
-    #         print(f"Check {model_path} for .mda material texture file.")
-    #         bsdf.inputs['Base Color'].default_value = (1,0,1,1)
-
-    #     if(texpath < len(ModelVars.my_object.texture_paths)):
-    #         # Give and error and assign a purple color if one texture is missing
-    #         if(ModelVars.my_object.texture_paths[skin_index] == ''):
-    #             print(f"Material Texture: MISSING!")
-    #             bsdf.inputs['Base Color'].default_value = (1,0,1,1)
-
-    #         else:
-    #             print(f"Material Texture: {ModelVars.my_object.texture_paths[skin_index]}")
-    #         if ModelVars.my_object.texture_paths[skin_index] != '':
-    #             texImage.image = bpy.data.images.load(ModelVars.my_object.texture_paths[skin_index])
-    #             mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-    #             # again copy and paste
-    #         else:
-    #             # print(f"Cannot find texture {ModelVars.my_object.texture_paths[triangle_index]}!")
-    #             print(f"Check {model_path} for .mda material texture file.")
-    #             bsdf.inputs['Base Color'].default_value = (1,0,1,1)
-
-    #     # Fall back to purple if we missed something or a triangle doesn't have a material assigned.
-    #     bsdf.inputs['Base Color'].default_value = (1,0,1,1)
-
-    #     texpath += 1
-    #     mat.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
-    #     ModelVars.obj.data.materials.append(mat)
-
-
-
-    # # If there are multiple textures, we need to reassign the triangles 
-    # if len(ModelVars.my_object.skin_names) > 1:
-    #     bpy.context.tool_settings.mesh_select_mode = [False, False, True]
-        
-    #     for material_index, material in enumerate(ModelVars.obj.data.materials):
-    #         bpy.context.object.active_material_index = material_index
-
-    #         # print(f"Current material index: {bpy.context.object.active_material_index}")
-    #         bpy.ops.object.mode_set(mode = 'EDIT')
-    #         bpy.ops.mesh.select_all(action = 'DESELECT')
-            
-    #         skin_triangle_list = list()
-    #         # triangle is key, skin index is the value
-    #         for tri in ModelVars.my_object.triangle_skin_dict:
-    #             if ModelVars.my_object.triangle_skin_dict[tri] == material_index:
-    #                 # print(f"Appending triangle {tri} to list for skin {material_index}")
-    #                 skin_triangle_list.append(tri)
-
-
-    #         bpy.ops.object.mode_set(mode = 'OBJECT')
-    #         for face_idx, face in enumerate(mesh.polygons):
-    #             # mesh.polygons[face_idx].select = True
-    #             if face_idx in (skin_triangle_list):
-    #                 face.material_index = bpy.context.object.active_material_index
-
-    #         # bpy.ops.object.mode_set(mode = 'EDIT')
-    #         # bpy.ops.object.material_slot_assign()
-
-
-    # # Apply new scale set on import screen
-    # # bpy.ops.view3d.snap_cursor_to_center({'area':view3d})
-    # #bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
-    
-    # #put cursor at origin 
-    # #bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
-    # #bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
-
-    # print("Seting to object mode...")
-    # bpy.ops.object.mode_set(mode = 'OBJECT')
-    # print("Setting origin to geometry...")
-    # bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
-    # #print("Setting origin to cursor...")
-    # #bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-    # # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
-    
-    # # ***** REMOVED ****** This doesn't really work because it doesn't hit all the frames on animated models, done in the frames instead (scale & translate)
-    # # obj.scale = (model_scale, model_scale, model_scale)
-    # # print(f"New model scale: { model_scale}")
-    # # print("New model scale applied...")
-    # bpy.context.active_object.rotation_euler[0] = math.radians(x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-    # bpy.context.active_object.rotation_euler[1] = math.radians(y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-    # bpy.context.active_object.rotation_euler[2] = math.radians(z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-    # print("Object rotated per selected parameters...")
-
-    # # Apply Transforms if option selected on import screen
-    # if(apply_transforms):
-    #     print("Applying transforms...")
-    #     context = bpy.context
-    #     ob = context.object
-    #     mb = ob.matrix_basis
-    #     if hasattr(ob.data, "transform"):
-    #         ob.data.transform(mb)
-    #     for c in ob.children:
-    #         c.matrix_local = mb @ c.matrix_local
-
-    #     ob.matrix_basis.identity()     
-
-    # # Apply flip if option is selected on import screen
-    # if(recalc_normals):
-    #     print("Recalculating normals...")
-    #     # go edit mode
-    #     bpy.ops.object.mode_set(mode='EDIT')
-    #     # select al faces
-    #     bpy.ops.mesh.select_all(action='SELECT')#Change to select object just made
-    #     # bpy.ops.mesh.flip_normals() # just flip normals
-    #     bpy.ops.mesh.normals_make_consistent(inside=False) # recalculate outside
-    #     # bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
-    #     # go object mode again
-    #     bpy.ops.object.editmode_toggle()
-        
-        
-    # print("YAY NO ERRORS!!")
     endProgress()
     return {'FINISHED'} # no idea, seems to be necessary for the UI
         
