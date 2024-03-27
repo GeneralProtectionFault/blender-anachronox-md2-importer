@@ -9,9 +9,11 @@ Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
 *Please note that installing this addon to Blender will also install the pillow module in Blender's Python environment, which is needed for working with the image textures of the MD2 models.
 This is mentioned because it will pull from the internet.*
 
-## Known Issue(s)
+## Known Issues
 Paco appears to have an slight issue with the UVs mapping a little off in his cape.  Since the same model file loads fine in the original tooling, and it's the only case of this I've seen, I believe
 this could simply be due to a quirk of how open gl would actually load the model.  This can be fixed by some quick fiddling in the UV editor, but might be worth a future update to handle this special case.
+
+When importing Democratus, the texture color comes in inverted.  Bizarre, as opening the texture file directly seems to work fine.  Easy to fix, but noted as "strange."
 
 ## Prerequisites
 The original Anachronox models are stored in anoxdata\MODELS.dat, as found in the installed game folder.
