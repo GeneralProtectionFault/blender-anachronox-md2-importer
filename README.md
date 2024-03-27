@@ -10,7 +10,7 @@ Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
 This is mentioned because it will pull from the internet.*
 
 ## Known Issue(s)
-Paco appears to have an slight issue with the UVs mapping a little off in his cape.  Since the same model file loads find in the original tooling, and it's the only case of this I've seen, I believe
+Paco appears to have an slight issue with the UVs mapping a little off in his cape.  Since the same model file loads fine in the original tooling, and it's the only case of this I've seen, I believe
 this could simply be due to a quirk of how open gl would actually load the model.  This can be fixed by some quick fiddling in the UV editor, but might be worth a future update to handle this special case.
 
 ## Prerequisites
