@@ -44,3 +44,11 @@ def findnth(string, substring, n):
     if len(parts) <= n:
         return -1
     return len(string) - len(parts[-1]) - len(substring)
+
+
+def get_blender_area(area_type):
+    for screen in bpy.context.workspace.screens:
+        for area in screen.areas:
+            if area.type == area_type:
+                return area
+    return None

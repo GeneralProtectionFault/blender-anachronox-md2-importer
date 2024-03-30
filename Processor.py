@@ -2,9 +2,21 @@ import bpy
 from dataclasses import dataclass, fields
 from typing import List
 import math
+from mathutils import Vector
 
-from .utils import ModelVars
-from .utils import startProgress, showProgress, endProgress, findnth
+from .utils import *
+
+
+
+def flatten_extend(matrix):
+    flat_list = []
+    for row in matrix:
+        flat_list.extend(row)
+    return flat_list
+
+def insert_keyframe(fcurves, frame, values):
+    for fcu, val in zip(fcurves, values):
+        fcu.keyframe_points.insert(frame, val, options={'FAST'})
 
 
 class QueueRunner(bpy.types.Macro):
@@ -22,34 +34,97 @@ class ImportAnimationFrames(bpy.types.Operator):
 
     def execute(self, context):
         self.finished = False
-        frame_count = len(ModelVars.my_object.frames)
 
         bpy.ops.object.mode_set(mode = 'EDIT')
 
-        print("Looping through frames...")
+        frame_count = len(ModelVars.my_object.frames)
 
+        frame_index_list = list()
+        # frame_x_values = list()
+        # frame_y_values = list()
+        # frame_z_values = list()
+        for frame_index, frame in enumerate(ModelVars.my_object.frames): 
+            frame_index_list.append(frame_index * 2)
+        #     frame_x_values.append(ModelVars.all_verts[frame_index][0])
+        #     frame_y_values.append(ModelVars.all_verts[frame_index][1])
+        #     frame_z_values.append(ModelVars.all_verts[frame_index][2])
+        
+        # frame_co_values = list()
+        # frame_co_values.append(frame_x_values)
+        # frame_co_values.append(frame_y_values)
+        # frame_co_values.append(frame_z_values)
+
+        # Sets the end frame on the timeline to what will be the last frame
+        bpy.context.scene.frame_end = frame_index_list[-1]
+
+        ModelVars.obj.animation_data_create()
+       
+        print("Looping through frames...")
         for frame_index, frame in enumerate(ModelVars.my_object.frames):
+        # for idx, v in enumerate(ModelVars.obj.data.vertices):
             # Update progress every 10 frames
             if (frame_index % 10 == 0):
                 showProgress(frame_index, frame_count)
 
+            action = ModelVars.obj.animation_data.action = bpy.data.actions.new(name=f"{ModelVars.object_name}")
+
+            # fcurve_x = action.fcurves.new(f"vertices", index = 0, action_group = "X Position (Mesh Vertex)")
+            
+            # fcurve_x.keyframe_points.add(count=len(ModelVars.my_object.frames))
+            # # fcurve_x.keyframe_points.foreach_set("co", \
+            # # [x for co in zip(frame_index_list, flatten_extend(ModelVars.all_verts[frame_index])) for x in co])
+            # # [x for co in zip(frame_index_list, frame_x_values) for x in co])
+
+            # fcurve_x.sampled_points.foreach_set("co", \
+            # [x for co in zip(frame_index_list, flatten_extend(ModelVars.all_verts[frame_index])) for x in co])
+            
+            # fcurve_x.update()
+
+
+
+
+
             anim_name = frame.name[ : findnth(frame.name, '_', 2)]
-            # print(f"Frame {frame_index} name: {anim_name}")
-
             # Indicates we're on the next animation!
-            if anim_name != ModelVars.current_anim_name:
-                ModelVars.current_anim_name = anim_name
-                ModelVars.animation_list.append(anim_name)
+            # if anim_name != ModelVars.current_anim_name:
+            #     ModelVars.current_anim_name = anim_name
+            #     ModelVars.animation_list.append(anim_name)
 
-                # Create a new action for the new animation
-                # bpy.ops.nla.actionclip_add(action=f"{ModelVars.object_name}_{anim_name}")
-                # print(f"New action created: {ModelVars.object_name}_{anim_name}")
+            #     # Create a new action for the new animation
+            #     # bpy.ops.nla.actionclip_add(action=f"{ModelVars.object_name}_{anim_name}")
+            #     # print(f"New action created: {ModelVars.object_name}_{anim_name}")
+            
+            # data_path = "vertices[%d].co"
+            # data_path = "vertices[%d]"
 
-            for idx,v in enumerate(ModelVars.obj.data.vertices):
+            # fcurves = [action.fcurves.new(data_path % v.index, index =  i) for i in range(3)]    
+            # for n, fcurve in enumerate(fcurves):
+            #     fcurve.keyframe_points.add(count=len(ModelVars.my_object.frames))
+                
+            #     #fcurve.keyframe_points.insert(frame_index_list[idx], frame_co_values[idx], options={'FAST'})
+                
+            #     fcurve.keyframe_points.foreach_set("co", \
+            #     [x for co in zip(frame_index_list, flatten_extend(frame_co_values[n])) for x in co])
+
+
+
+            # for frm, value in zip(frame_index_list, flatten_extend(ModelVars.all_verts[frame_index])):
+            #     insert_keyframe(fcurves, frm, value)   
+            
+
+
+            ModelVars.obj.data.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
+
+            for idx, v in enumerate(ModelVars.obj.data.vertices):
                 ModelVars.obj.data.vertices[idx].co = ModelVars.all_verts[frame_index][idx]
-                success = v.keyframe_insert('co', frame=frame_index*2)  # parameter index=2 restricts keyframe to dimension
+                # parameter index = 0, 1 or 2 restricts to x, y or z axis
+                success = v.keyframe_insert('co', frame = frame_index * 2) # Back in the olden days, we only had them thar 30 frames/second
                 if not success:
                     print(f'Keyframe insert failed, Frame: {frame_index}')
+
+        
+            
+            
 
         bpy.ops.object.mode_set(mode = 'OBJECT')
         return {'FINISHED'}
