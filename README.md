@@ -4,7 +4,7 @@
 https://github.com/lennart-g/blender-md2-importer
 
 ## Overview
-Plugin to import Anachronox MD2 (modified Quake) 3D models into Blender.
+Plugin to import Anachronox MD2 (modified Quake 2) 3D models into Blender.
 
 *Please note that installing this addon to Blender will also install the pillow module in Blender's Python environment, which is needed for working with the image textures of the MD2 models.
 This is mentioned because it will pull from the internet.*
@@ -44,9 +44,9 @@ Plugin will now support loading models with multiple textures.  A material is cr
 #### Note: For a breakdown of the header and data lump structure, see the Anachronox_MD2_Structure.ods spreadsheet.
 #### Also, for a visual representation of the structure of the frame bytes (structure varies depending on a flag in the header), specifically, see the draw.io diagram: MD2_FrameResolution.drawio
 
-The original model format (.MD2) is from Quake.  Anachronox uses a modified version of this model format, the critical difference being support for using multiple textures for 1 model.
+The original model format (.MD2) is from Quake 2.  Anachronox uses a modified version of this model format, the critical difference being support for using multiple textures for 1 model.
 
-The original Quake MD2 format does support multiple *skins* which are stored in the header.  These are simply the names of the texture images.  This can be confusing, but the original purpose was to have interchangeable texture images that would essentially act as a palette swap, but still only 1 texture on the model at a time.  This is repurposed in the Anachronox format, so that multiple textures can be applied to a single model simultaneously.  Instead of these "skins" being a single, swapable texture, they are applied to different regions of the model, corresponding to the gl commands that are used to draw the model.  This is the crux of the incompatibility between the Quake & Anachronox models.
+The original Quake 2 MD2 format does support multiple *skins* which are stored in the header.  These are simply the names of the texture images.  This can be confusing, but the original purpose was to have interchangeable texture images that would essentially act as a palette swap, but still only 1 texture on the model at a time.  This is repurposed in the Anachronox format, so that multiple textures can be applied to a single model simultaneously.  Instead of these "skins" being a single, swapable texture, they are applied to different regions of the model, corresponding to the gl commands that are used to draw the model.  This is the crux of the incompatibility between the Quake 2 & Anachronox models.
 
 This is done by some "extra data." There is a short number (2 bytes) for each "skin," which resides between the end of the gl commands and the tagged surfaces in the file's data.  Each short number corresponds to a number of "primitives," in this case, referring to OpenGL (or just "gl") commands.  When actually drawing a model in OpenGL, the vertices/polygons are drawn in order according to the gl commands (i.e. draw a triangle with such-and-such vertices, etc...).  Not to be confused with the vertex order in the frames.  These are specified in the corresponding (gl command) lump of the file.  Following that order, the aforementioned "extra data" numbers tell how many gl commands to apply the corresponding "skin"/texture to.  Put more simply, this lump of data is a series of numbers for each skin/texture, such as 32, 249.  This means the first texture applies to the first 32 gl commands, and the next 2nd texture applies to the next 249 gl commands.
 
