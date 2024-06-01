@@ -6,6 +6,7 @@ from dataclasses import dataclass, fields
 import struct
 from pathlib import Path
 from typing import List
+import platform
 
 from .utils import startProgress, showProgress, endProgress, ModelVars, findnth
 
@@ -18,7 +19,10 @@ from .Processor import QueueRunner
 
 
 # path to python.exe
-python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
+if platform.system() == "Linux":
+    python_exe = os.path.join(sys.prefix, 'bin', 'python')
+else:
+    python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
 
 try:
     # upgrade pip
@@ -335,7 +339,10 @@ def load_header(file_bytes):
 
 
 def load_texture_paths_and_skin_resolutions(skin_names, path):
-    model_path = '\\'.join(path.split('\\')[0:-1])+"\\"
+    # model_path = '\\'.join(path.split('\\')[0:-1])+"\\"
+    print(f'Path to file: {path}')
+    model_path = str(Path(path).parent)
+    print(f'Folder: {model_path}')
     texture_paths = {}
     skin_resolutions = {}
     print("***TEXTURES***")
@@ -348,8 +355,12 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
         for format in supported_image_formats:
             # Added support for autoloading textures from .md2 directory or a subdirectory with the same name as the embedded texture.
             # and to name Blender mesh the same as .md2 filename if a Display Name is not entered on import screen - Creaper
-            texture_path = model_path + embedded_texture_name_unextended + format
-            sub_texture_path = model_path + embedded_texture_name_unextended + "\\" + embedded_texture_name_unextended + format
+            texture_path = os.path.join(model_path, embedded_texture_name_unextended) + format
+            sub_texture_path = os.path.join(model_path, embedded_texture_name_unextended, embedded_texture_name_unextended) + format
+
+            print(f'Texture Path: {texture_path}')
+            print(f'Subtexture Path: {sub_texture_path}')
+
             if os.path.isfile(texture_path):
                 # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
                 with PIL.Image.open(texture_path) as img:
@@ -371,7 +382,7 @@ def load_texture_paths_and_skin_resolutions(skin_names, path):
                 skin_resolutions[skin_index] = (64,64)
                 texture_paths[skin_index] = ""
         if texture_paths[skin_index] == "":
-            print(f"Unable to locate texture for {model_path + embedded_texture_name}!")
+            print(f"Unable to locate texture for {model_path + '/' + embedded_texture_name}!")
     print("\n")
     print(f"Skin resolution info:\n{skin_resolutions}")
     

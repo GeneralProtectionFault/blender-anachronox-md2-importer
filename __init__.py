@@ -2,8 +2,8 @@
 bl_info = {
     "name": "Anachronox MD2 Model Importer",
     "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "version": (1,0,1),
-    "blender": (4,0,0),
+    "version": (1,0,2),
+    "blender": (4,1,1),
     "location": "File > Import > Anachronox (.md2)",
     "description": "Import Anachronox variant of MD2 (Quake II) models",
     "warning": "",
