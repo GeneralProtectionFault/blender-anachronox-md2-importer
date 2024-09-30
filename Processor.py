@@ -233,16 +233,18 @@ class ImportMaterials(bpy.types.Operator):
         print("Setting origin to geometry...")
         bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
         # print("Setting origin to cursor...")
-        # bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
-        # bpy.data.objects[obj_name].scale = (model_scale, model_scale, model_scale)
+        # bpy.ops.object.origin_set(type='ORIGIN_CURSOR')        
         
-        # ***** REMOVED ****** This doesn't really work because it doesn't hit all the frames on animated models, done in the frames instead (scale & translate)
-        # obj.scale = (model_scale, model_scale, model_scale)
-        # print(f"New model scale: { model_scale}")
-        # print("New model scale applied...")
-        bpy.context.active_object.rotation_euler[0] = math.radians(ModelVars.x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-        bpy.context.active_object.rotation_euler[1] = math.radians(ModelVars.y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-        bpy.context.active_object.rotation_euler[2] = math.radians(ModelVars.z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+        # REMOVED - This doesn't work on all frames ********************************
+        # Any rotation needs to be applied to all frames
+        # for frame_index, frame in enumerate(ModelVars.my_object.frames):
+        #     bpy.context.scene.frame_set(frame_index)
+        #     bpy.context.active_object.rotation_euler[0] = math.radians(ModelVars.x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+        #     bpy.context.active_object.rotation_euler[1] = math.radians(ModelVars.y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+        #     bpy.context.active_object.rotation_euler[2] = math.radians(ModelVars.z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+
+        # Reset
+        bpy.context.scene.frame_set(0)
         print("Object rotated per selected parameters...")
 
         # Apply Transforms if option selected on import screen

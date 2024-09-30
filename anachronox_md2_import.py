@@ -1,5 +1,6 @@
 import bpy
 import os
+import stat
 import sys
 import subprocess
 from dataclasses import dataclass, fields
@@ -20,7 +21,23 @@ from .Processor import QueueRunner
 
 # path to python.exe
 if platform.system() == "Linux":
-    python_exe = os.path.join(sys.prefix, 'bin', 'python')
+    # Depending on the environment, the binary might be "python" or "python3.11", etc...
+    # Stupid...but need to "find" the python binary to avoid a crash...
+    python_bin_folder = os.path.join(sys.prefix, 'bin')
+
+    # Search for binary files
+    executable = stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH
+    for filename in os.listdir(python_bin_folder):
+        full_python_path = os.path.join(python_bin_folder, filename)
+        if os.path.isfile(full_python_path):
+            st = os.stat(full_python_path)
+            mode = st.st_mode
+            # If file is an executable and contains the text "python"
+            if mode & executable and 'python' in filename:
+                # print(filename,oct(mode))
+                break
+
+    python_exe = full_python_path
 else:
     python_exe = os.path.join(sys.prefix, 'bin', 'python.exe')
 
