@@ -11,6 +11,8 @@
 # Folder just used to do a diff compare to potential changes
 Diff/
 
+Build/
+
 # For backup/comparison
 anachronox_md2_import_master.py
 anachronox_md2_import.old.py

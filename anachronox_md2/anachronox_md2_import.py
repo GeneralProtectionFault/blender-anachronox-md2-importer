@@ -121,8 +121,9 @@ class md2_t:
     ofs_frames: int                     # offset to frame data
     ofs_glcmds: int                     # offset to opengl commands
     ofs_end: int                        # offset to end of file
-    num_header_ofs_dec_68: int          # unknown number specified in the header at 44H
-    ofs_end_fan: int                    # offset to the end of the gl commands 
+    
+    texture_count: int                  # number of different textures the model uses
+    ofs_glcmd_counts: int               # offset to the counts of # of gl commands for each texture
     num_LODdata1: int                   # Float LOD data 1
     num_LODdata2: int                   # Float LOD data 2
     num_LODdata3: int                   # Float LOD data 3
@@ -184,7 +185,9 @@ def load_gl_commands(gl_command_bytes):
     offset = 0
     gl_commands = list()
     while True:  # ends when mode is 0
+        # This "mode" is just an integer.  If positive, it's GL_TRIANGLE_STRIP.  If negative, it's GL_TRIANGLE_FAN.  If 0, end of the lump
         (mode,) = struct.unpack("<i", gl_command_bytes[offset : offset + 4]) # 4 bytes - 1 int
+
         num_verts = abs(mode)
         if mode > 0:
             mode = "GL_TRIANGLE_STRIP"
@@ -286,7 +289,7 @@ def load_frames(frames_bytes, header, model_scale):
                 lightnormal_end_index = frame_start + (45 + resolution_bytes) + v * (5 + resolution_bytes)
 
                 # struct.unpack returns tuple--in this case, 3 bytes, which are coordinates for the vertex
-                vector = list(struct.unpack(unpack_format, frames_bytes[vertex_start_index : vertex_end_index])) # list() only for matching expected typ
+                vector = list(struct.unpack(unpack_format, frames_bytes[vertex_start_index : vertex_end_index])) # list() only for matching expected type
                 normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])
 
 
@@ -297,6 +300,7 @@ def load_frames(frames_bytes, header, model_scale):
                 x = vertexBytes >> 0 & 0x000007ff
                 y = vertexBytes >> 11 & 0x000003ff
                 z = vertexBytes >> 21 & 0x000007ff
+                # print(f"Vector bytes before bitshift: {vertexBytes}")
                 vector = [x,y,z]
                 # print(f"Vertex vector after bit shift: {vector}")
 
@@ -304,6 +308,7 @@ def load_frames(frames_bytes, header, model_scale):
                 lightnormal_end_index = (40 + 6 * header.num_xyz) * current_frame_number + 46 + v * 6
                 normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])[0]
 
+            # print(f"Vector: {vector}")
             vertex = vertex_t(vector, normal)
             verts.append(vertex)
             
@@ -475,7 +480,7 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
 
 
-def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_resolutions, triangle_gl_dictionary, texture_scale):
+def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_resolutions, triangle_gl_dictionary, texture_scale):
     """
     Loads UV (in Quake 2 terms, ST) coordinates
     :param texture_coordinate_bytes:
@@ -493,6 +498,7 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
         current_coordinate.s += coordinate_offset
         current_coordinate.t += coordinate_offset
         texture_coordinates.append(current_coordinate)
+        # print(f"{i} - {current_coordinate}")
 
     scale_offset = -2
     texture_skin_dict = {}
@@ -501,12 +507,13 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles,  skin_
             if triangle.textureIndices[0] == coord_index or triangle.textureIndices[1] == coord_index or triangle.textureIndices[2] == coord_index:
                 texture_skin_dict[coord_index] = triangle_gl_dictionary[triangle_index] # dictionary returns the skin previously assigned
     
-    print(f"texture skin dictionary size: {len(texture_skin_dict)}")
+    # print(f"texture skin dictionary size: {len(texture_skin_dict)}")
 
     for coord_index, coord in enumerate(texture_coordinates):
-        # -1 here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
+        # offset here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
         coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale) + scale_offset)
         coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale) + scale_offset)
+        # print(f"Post Calculation {coord_index}: S: {coord.s}, T: {coord.t}")
 
     return texture_coordinates
 
@@ -527,7 +534,7 @@ def load_file(path, texture_scale, model_scale):
     frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header, model_scale)
     texture_paths, skin_resolutions = load_texture_paths_and_skin_resolutions(skin_names, path)
 
-    gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_end_fan])
+    gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_glcmd_counts])
     
     # This is not the "num_glcmds" from the header.  That number counts each vertex as a separate command.  The following is the number of ACTUAL gl commands
     print(f"Parsed {len(gl_commands)} GL Commands.")
@@ -648,13 +655,10 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     if not displayed_name:
         # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
         # object_name_test = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
-        #   
         ModelVars.object_name = os.path.basename(md2_path).split('/')[-1]
         ModelVars.object_name = os.path.splitext(ModelVars.object_name)[0] # remove extension (last one)
         print(f"Blender Outliner Object Name: {ModelVars.object_name}")
         ModelVars.mesh = bpy.data.meshes.new(ModelVars.object_name)  # add the new mesh via filename
-        
-
     else:
         ModelVars.object_name = [displayed_name]
         print(f"Blender Outliner Object Name: {displayed_name}")
@@ -666,7 +670,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     ModelVars.all_verts = [[x.v for x in ModelVars.my_object.frames[y].verts] for y in range(ModelVars.my_object.header.num_frames)]
     # List of vertex indices forming a triangular face
     tris = ([x.vertexIndices for x in ModelVars.my_object.triangles])
-    # uv coordinates (in q2 terms st coordinates) for projecting the skin on the model's faces
+    # uv coordinates (in Quake II/OpenGL terms st coordinates) for projecting the skin on the model's faces
     # blender flips images upside down when loading so v = 1-t for blender imported images
     uvs_others = ([(x.s, 1-x.t) for x in ModelVars.my_object.texture_coordinates]) 
     # blender uv coordinate system originates at lower left
@@ -688,7 +692,15 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     # note: faces and vertices are stored exactly in the order they were added
     for face_idx, face in enumerate(ModelVars.mesh.polygons):
         for idx, (vert_idx, loop_idx) in enumerate(zip(face.vertices, face.loop_indices)):
-            uv_layer.data[loop_idx].uv = uvs_others[ModelVars.my_object.triangles[face_idx].textureIndices[idx]]
+            # Paco WTF UV fix
+            if 'paco' in ModelVars.object_name.lower() and vert_idx in (9,289):
+                print(f"Fixing Paco UV vertex: {vert_idx}!")
+                uv_layer.data[loop_idx].uv = [0.016129032258064516, 0.6587301587301587]
+            else:
+                uv_layer.data[loop_idx].uv = uvs_others[ModelVars.my_object.triangles[face_idx].textureIndices[idx]]
+            
+            
+
                 
     """ Create animation for animated models: set keyframe for each vertex in each frame individually """
     # Frame names follow the format: amb_a_001, amb_a_002, etc...

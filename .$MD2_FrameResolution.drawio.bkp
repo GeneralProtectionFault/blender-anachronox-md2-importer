@@ -127,7 +127,7 @@
         <mxCell id="Tm8wrHtLugqOGv2JygqX-41" value="This one is different because the vertex data is stored in a single long variable, as opposed to an array" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fontSize=14;fontColor=#14140C;gradientColor=#FFF838;" parent="1" vertex="1">
           <mxGeometry x="1410" y="530" width="210" height="110" as="geometry" />
         </mxCell>
-        <mxCell id="Tm8wrHtLugqOGv2JygqX-42" value="&lt;font color=&quot;#000000&quot;&gt;This long is bit-shifted by 3 different values to arrive at the 3-point vector&lt;/font&gt;" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fontSize=14;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+        <mxCell id="Tm8wrHtLugqOGv2JygqX-42" value="This long is bit-shifted by 3 different values to arrive at the 3-point vector" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fontSize=14;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
           <mxGeometry x="1700" y="530" width="210" height="110" as="geometry" />
         </mxCell>
       </root>

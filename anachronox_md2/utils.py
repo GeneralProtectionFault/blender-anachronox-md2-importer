@@ -52,3 +52,19 @@ def get_blender_area(area_type):
             if area.type == area_type:
                 return area
     return None
+
+'''
+# TEST - The correct resulting vector is [1174, 513, 1185]
+
+bytes = 2486176918      # BINARY - 10010100001100000000110010010110
+                        # First 11 (as masked below):   10010010110 (1174)
+
+print(0 & 0x000007ff)   # BINARY - 11111111111
+
+# Bitshift 11
+#print(11 & 0x000003ff)  # BINARY - 1111111111
+#print(21 & 0x000007ff)  # BINARY - 11111111111
+
+
+print (bytes >> 11)
+'''
