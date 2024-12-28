@@ -1,4 +1,4 @@
-# Anachronox MD2 import add-on for Blender 3.x - 4.x
+# Anachronox MD2 import add-on for Blender
 
 ## Based on:
 https://github.com/lennart-g/blender-md2-importer
@@ -12,6 +12,8 @@ This is mentioned because it will pull from the internet.*
 ## Known Issues
 Paco appears to have an slight issue with the UVs mapping a little off in his cape.  Since the same model file loads fine in the original tooling, and it's the only case of this I've seen, I believe
 this could simply be due to a quirk of how open gl would actually load the model.  This can be fixed by some quick fiddling in the UV editor, but might be worth a future update to handle this special case.
+
+UPDATE:  The plugin now manually handles 2 vertex UV coordinates (vertex 9 & 289) and largely corrects this problem with the exception of a slight seam visible.
 
 When importing Democratus, the texture color comes in inverted.  Bizarre, as opening the texture file directly seems to work fine.  Easy to fix, but noted as "strange."
 
