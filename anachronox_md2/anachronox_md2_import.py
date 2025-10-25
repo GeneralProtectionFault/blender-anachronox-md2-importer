@@ -8,6 +8,8 @@ import struct
 from pathlib import Path
 from typing import List
 import platform
+import re
+from collections import defaultdict
 
 from .utils import startProgress, showProgress, endProgress, ModelVars, findnth
 
@@ -359,58 +361,376 @@ def load_header(file_bytes):
 
     return header
 
+SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]
 
-def load_texture_paths_and_skin_resolutions(skin_names, path):
-    # model_path = '\\'.join(path.split('\\')[0:-1])+"\\"
-    print(f'Path to file: {path}')
-    model_path = str(Path(path).parent)
-    print(f'Folder: {model_path}')
+def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_formats: list[str]):
+    """
+    Tries to load a texture by appending supported formats to a base path (which includes the stem).
+    Args:
+        base_path_for_texture_stem (Path): The base path and name of the texture 
+                                           (e.g., Path("textures/folder/mytexture_stem")).
+        supported_formats (list of str): List of supported image extensions.
+    Returns:
+        tuple (Path, tuple) or (None, None): Found texture path and (width, height), or None if not found.
+    """
+    for fmt in supported_formats:
+        candidate_path = base_path_for_texture_stem.with_suffix(fmt)
+
+        if candidate_path.is_file():
+            try:
+                with PIL.Image.open(candidate_path) as img:
+                    # Resolution from actual image
+                    print(f"Texture found: {candidate_path} {img.size}")
+                    return candidate_path, img.size
+            except PIL.UnidentifiedImageError:
+                print(f"Warning: File {candidate_path} found but is not a recognized image or is corrupted.")
+            except Exception as e: # pylint: disable=broad-except
+                print(f"Warning: Error opening image {candidate_path}: {e}")
+    return None, None
+
+
+def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str):
     texture_paths = {}
     skin_resolutions = {}
+    
     print("***TEXTURES***")
-    for skin_index, skin_name in enumerate(skin_names):
-        embedded_texture_name = skin_names[skin_index].rstrip("\x00")
-        embedded_texture_name_unextended = os.path.splitext(embedded_texture_name)[0] # remove extension (last one)
+
+    model_file_path_obj = Path(model_file_full_path_str)
+    initial_model_dir = model_file_path_obj.parent
+    model_filename_stem = model_file_path_obj.stem
+
+    for skin_index, skin_name_raw in enumerate(skin_names):
+        print(f'Path to file: {model_file_path_obj}')
+        # This variable mirrors 'model_path' from original, which changes based on MDA/ATD
+        current_texture_search_base_str = str(initial_model_dir)
+        print(f'Folder: {current_texture_search_base_str}')
+
+        embedded_texture_name = skin_name_raw.rstrip("\x00")
+        # remove extension (last one)
+        embedded_texture_name_stem = Path(embedded_texture_name).stem
         print(f"Embedded Texture Name {embedded_texture_name}")
-        """ Look for existing file of given name and supported image format"""
-        supported_image_formats = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"] # Order doesn't match DP2 image order
-        for format in supported_image_formats:
-            # Added support for autoloading textures from .md2 directory or a subdirectory with the same name as the embedded texture.
-            # and to name Blender mesh the same as .md2 filename if a Display Name is not entered on import screen - Creaper
-            texture_path = os.path.join(model_path, embedded_texture_name_unextended) + format
-            sub_texture_path = os.path.join(model_path, embedded_texture_name_unextended, embedded_texture_name_unextended) + format
 
-            print(f'Texture Path: {texture_path}')
-            print(f'Subtexture Path: {sub_texture_path}')
+        found_texture_file_path = None
+        found_texture_resolution = None
 
-            if os.path.isfile(texture_path):
-                # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
-                with PIL.Image.open(texture_path) as img:
-                    width, height = img.size
-                    skin_resolutions[skin_index] = img.size
-                    print(f"Texture found: {texture_path} {skin_resolutions[skin_index]}")
-                    texture_paths[skin_index] = texture_path 
-                break
-            elif os.path.isfile(sub_texture_path):
-                    # Get the resolution from the actual image while we're here, as the header only has the first one, which won't cut it for multi-textured models - Holonet
-                with PIL.Image.open(sub_texture_path) as img:
-                    width, height = img.size
-                    skin_resolutions[skin_index] = img.size
-                    print(f"Texture found: {sub_texture_path} {skin_resolutions[skin_index]}")
-                    texture_path = sub_texture_path
-                    texture_paths[skin_index] = texture_path
-                break
-            else: # if a texture is not located insert a blank texture name into array so the 2nd texture doesn't get moved inplace of the 1st and assign a bum resolution so we don't crash Holonets calculations - Creaper
-                skin_resolutions[skin_index] = (64,64)
-                texture_paths[skin_index] = ""
+        # Attempt 1: Look for existing file of given name and supported image format
+        # Based on embedded texture name in the model's directory or a subdirectory
+        
+        # Path in .md2 directory
+        # Added support for autoloading textures from .md2 directory
+        texture_base_candidate1 = initial_model_dir / embedded_texture_name_stem
+        print(f'Texture Path: {texture_base_candidate1}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+        found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+            texture_base_candidate1, SUPPORTED_IMAGE_FORMATS
+        )
+
+        if not found_texture_file_path:
+            # Path in subdirectory with the same name as the embedded texture
+            # Added support for autoloading textures from a subdirectory with the same name as the embedded texture
+            texture_base_candidate2 = initial_model_dir / embedded_texture_name_stem / embedded_texture_name_stem
+            print(f'Subtexture Path: {texture_base_candidate2}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+            found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                texture_base_candidate2, SUPPORTED_IMAGE_FORMATS
+            )
+        
+        # if a texture is not located insert a blank texture name into array ... and assign a bum resolution
+        if not found_texture_file_path:
+            skin_resolutions[skin_index] = (64, 64) 
+            texture_paths[skin_index] = ""
+        else:
+            texture_paths[skin_index] = str(found_texture_file_path)
+            skin_resolutions[skin_index] = found_texture_resolution
+
+
+        # --- MDA Fallback ---
         if texture_paths[skin_index] == "":
-            print(f"Unable to locate texture for {model_path + '/' + embedded_texture_name}!")
+            print("Unable to locate texture, trying to find associated MDA file...")
+            
+            # Look for MDA in current folder
+            mda_path = initial_model_dir / (model_filename_stem + ".mda")
+            if not mda_path.is_file():
+                # Look for MDA in parent folder
+                mda_path = initial_model_dir.parent / (model_filename_stem + ".mda")
+
+            if mda_path.is_file():
+                print(f"Found MDA: {mda_path}")
+                grouped_maps = parse_material_file(str(mda_path))
+
+                mda_texture_rel_path_str = None
+                if grouped_maps:
+                    map_key_to_use = "DFLT" if "DFLT" in grouped_maps else next(iter(grouped_maps), None)
+                    if map_key_to_use and map_key_to_use in grouped_maps:
+                        texture_list_for_key = grouped_maps[map_key_to_use]
+                        if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
+                            mda_texture_rel_path_str = texture_list_for_key[skin_index]
+                        else:
+                            print(f"Warning: Skin index {skin_index} out of bounds or invalid format for key '{map_key_to_use}' in MDA maps.")
+                    else:
+                        print("Warning: No suitable key ('DFLT' or first key) found in MDA maps or map is empty.")
+                else:
+                    print("Warning: MDA file parsed to empty grouped_maps.")
+
+                if mda_texture_rel_path_str:
+                    current_texture_search_base_str = merge_paths(str(initial_model_dir), mda_texture_rel_path_str)
+                    print(f"Path after MDA merge: {current_texture_search_base_str}")
+                    
+                    mda_derived_tex_base = Path(current_texture_search_base_str)
+                    print(f'Texture Path (from MDA): {mda_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+                    found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                        mda_derived_tex_base, SUPPORTED_IMAGE_FORMATS
+                    )
+                    if found_texture_file_path:
+                        texture_paths[skin_index] = str(found_texture_file_path)
+                        skin_resolutions[skin_index] = found_texture_resolution
+            else:
+                print(f"No MDA file found for {model_filename_stem} in {initial_model_dir} or {initial_model_dir.parent}")
+
+
+        # --- ATD Fallback ---
+        if texture_paths[skin_index] == "":
+            print("Unable to locate texture after MDA (or MDA not found/used), trying ATD...")
+            atd_file_candidate = Path(current_texture_search_base_str).with_suffix(".atd")
+            print(f'ATD file lookup: {atd_file_candidate}')
+
+            if atd_file_candidate.is_file():
+                print(f"Found ATD: {atd_file_candidate}")
+                res_from_atd = extract_file_value(str(atd_file_candidate))
+                if res_from_atd:
+                    print(f"ATD extraction result: {res_from_atd}")
+                    current_texture_search_base_str = merge_paths(current_texture_search_base_str, res_from_atd)
+                    print(f"Path after ATD merge: {current_texture_search_base_str}")
+
+                    atd_derived_tex_base = Path(current_texture_search_base_str)
+                    print(f'Texture Path (from ATD): {atd_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+                    found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                        atd_derived_tex_base, SUPPORTED_IMAGE_FORMATS
+                    )
+                    if found_texture_file_path:
+                        texture_paths[skin_index] = str(found_texture_file_path)
+                        skin_resolutions[skin_index] = found_texture_resolution
+                else:
+                    print(f"ATD file {atd_file_candidate} did not yield a value.")
+            else:
+                print(f"ATD file {atd_file_candidate} not found.")
+
+        # Final check if texture was found for this skin_index
+        if texture_paths[skin_index] == "":
+            print(f"Unable to locate texture for '{current_texture_search_base_str}/{embedded_texture_name}'!")
+            # Ensure defaults are set if all attempts failed
+            skin_resolutions[skin_index] = (64, 64) 
+            texture_paths[skin_index] = ""
+
+
     print("\n")
     print(f"Skin resolution info:\n{skin_resolutions}")
     
     return texture_paths, skin_resolutions
 
+def extract_file_value(file_path):
+    """
+    Extracts the value of the `file` field for the `#0 > !bitmap > file` construct from the text file.
 
+    :param file_path: Path to the text file
+    :return: Value of the `file` field, or None if not found
+    """
+    with open(file_path, 'r') as file:
+        content = file.read()
+
+    # Regular expression to match the specific construct
+    pattern = r"#\s*0\s*!bitmap\s*file\s*=\s*(.+)"
+    
+    match = re.search(pattern, content)
+    if match:
+        return match.group(1).strip()
+    return None
+
+def parse_material_file(file_path):
+    """
+    Reads a text file, locates all "map" element values inside the
+    structure profile -> skin -> pass, and groups them by "profile" value.
+    """
+    # Use defaultdict to automatically create list for new profiles
+    results = defaultdict(list)
+    
+    current_profile_name = None
+    
+    # Stack to keep track of block types and the brace level they opened at.
+    # Each element: (block_type_str, brace_level_opened_at)
+    # block_type_str can be 'profile', 'skin', 'pass', or 'anonymous' (for unrecognized blocks)
+    block_context_stack = [] 
+    current_brace_level = 0
+
+    # These variables help associate a keyword (like 'profile', 'skin', 'pass')
+    # with the next '{' that opens its block.
+    pending_keyword = None
+    pending_profile_name_candidate = None # Specifically for 'profile' keyword
+
+    # Regex to find 'map "some/path/here"' and capture "some/path/here"
+    # It allows for optional whitespace after "map"
+    map_regex = re.compile(r'map\s+"(.*?)"')
+
+    try:
+        with open(file_path, 'r') as f:
+            spike = False
+            for line_num, raw_line in enumerate(f, 1):
+                line = raw_line.strip()
+
+                if not line or line.startswith("//"): # Skip empty lines and C-style comments
+                    continue
+
+                # 1. Check for keywords that define blocks we care about.
+                # These set a "pending" state, waiting for a '{'.
+                if line.startswith("profile"):
+                    parts = line.split()
+                    if len(parts) > 1:
+                        pending_keyword = "profile"
+                        pending_profile_name_candidate = parts[1]
+                    else: # Malformed profile line
+                        pending_keyword = "profile" 
+                        pending_profile_name_candidate = "EMPTY"
+                elif line.startswith("skin"):
+                    # Only consider 'skin' if we are inside a profile context,
+                    # or if it's a pending keyword to be validated when '{' appears.
+                    pending_keyword = "skin"
+                elif line.startswith("pass"):
+                    # Similar logic for 'pass', needs to be in a 'skin' context.
+                    pending_keyword = "pass"
+                
+                # 2. Check for "map" lines.
+                # This must be within the specific hierarchy: profile -> skin -> pass.
+                # The regex match is done here, independent of whether this line also opens/closes a block.
+                map_match = map_regex.match(line) # Use match() as 'map' should be at the start
+                if map_match:
+                    if current_profile_name and len(block_context_stack) >= 2:
+                        # Check context: top of stack should be 'pass', one below should be 'skin'.
+                        # The 'profile' context is confirmed by 'current_profile_name' being set.
+                        if block_context_stack[-1][0] == 'pass' and \
+                           block_context_stack[-2][0] == 'skin':
+                            map_value = map_match.group(1)
+                            results[current_profile_name].append(map_value)
+                            spike = True
+                
+                # 3. Handle block opening '{'.
+                # This can be on its own line or at the end of a keyword line (e.g., "skin {").
+                if line.endswith("{"):
+                    block_opened_this_line = True # Flag that a block was opened
+                    # Use the pending_keyword (if any) to identify the block type.
+                    if pending_keyword == "profile":
+                        current_profile_name = pending_profile_name_candidate
+                        # Ensure the list for this profile exists
+                        if current_profile_name not in results:
+                             results[current_profile_name] = []
+                        block_context_stack.append(("profile", current_brace_level))
+                    elif pending_keyword == "skin":
+                        # Skin must be within an active profile block or its descendant
+                        if current_profile_name: 
+                            block_context_stack.append(("skin", current_brace_level))
+                            spike = False
+                        else: # Skin outside profile, treat as anonymous or ignore
+                            block_context_stack.append(("anonymous", current_brace_level))
+                    elif pending_keyword == "pass":
+                        # Pass must be within an active skin block
+                        if current_profile_name and block_context_stack and \
+                           block_context_stack[-1][0] == 'skin' and not spike:
+                            block_context_stack.append(("pass", current_brace_level))
+                        else: # Pass outside skin, treat as anonymous or ignore
+                            block_context_stack.append(("anonymous", current_brace_level))
+                    elif pending_keyword is None and line == "{": 
+                        # An opening brace not preceded by a tracked keyword: anonymous block
+                        block_context_stack.append(("anonymous", current_brace_level))
+                    # else: A keyword was pending but the line was e.g. "keyword {" and keyword wasn't tracked
+                    #       This case is covered by the above, or it's an anonymous block if pending_keyword was None.
+                    
+                    current_brace_level += 1
+                    pending_keyword = None # The '{' has consumed the pending keyword
+                    pending_profile_name_candidate = None
+                
+                # 4. Handle block closing '}'.
+                elif line == "}":
+                    if current_brace_level > 0: # Ensure we don't go negative
+                        current_brace_level -= 1
+                    else:
+                        # This indicates a syntax error (more '}' than '{')
+                        # print(f"Warning: Unmatched '}}' at line {line_num_val} in {file_path}")
+                        pass # Or raise error
+
+                    if block_context_stack and block_context_stack[-1][1] == current_brace_level:
+                        # This '}' closes the block at the top of the stack
+                        closed_block_type, _ = block_context_stack.pop()
+                        if closed_block_type == "profile":
+                            current_profile_name = None # Exited current profile's scope
+                    # else: Mismatched brace or closing an untracked anonymous block.
+                    
+                    pending_keyword = None # A '}' also clears any pending keyword expectation.
+                    pending_profile_name_candidate = None
+
+                # 5. If a line is not a keyword starter we track, and not a brace,
+                #    and didn't open a block this line, it might be an inner statement
+                #    like 'sort blend'. Such lines should not clear a pending_keyword
+                #    if it was set by a *previous* line and waiting for a '{' on a *future* line.
+                #    The logic already handles this: pending_keyword is only cleared by
+                #    '{', '}', or being overwritten by another profile/skin/pass keyword.
+                #
+                #    If a line *was* a keyword starter (e.g. "skin") but did *not* end with "{",
+                #    pending_keyword remains set, waiting for a "{" on a subsequent line.
+                #    If the line *was not* a keyword starter, and did not end with "{",
+                #    pending_keyword from a previous line (if any) persists.
+
+    except FileNotFoundError:
+        print(f"Error: File not found at {file_path}")
+        return None
+    except Exception as e:
+        print(f"An error occurred during parsing: {e} (line {line_num})")
+        return None
+        
+    return dict(results) # Convert defaultdict to dict for cleaner output if preferred
+
+def merge_paths(base_path, relative_path):
+    """
+    Merges a base path with a relative path, replacing the portion
+    of the base path indicated by the relative path.
+
+    Args:
+        base_path (str): The original base path (e.g., 'c:\\a\\b\\c\\d\\e').
+        relative_path (str): The relative path to merge (e.g., '\\c\\d\\f').
+
+    Returns:
+        str: The resulting merged path (e.g., 'c:\\a\\b\\c\\d\\f').
+    """
+    # Normalize paths to handle different formats and separators
+    base_parts = os.path.normpath(base_path).split(os.sep)
+    relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep) 
+    
+    relative_parts.remove("models") # "models" appears to be a parent folder that we should replace w/ wherever files are extracted to
+
+    # print(f"\nBASE PARTS: {base_parts}")
+    # print(f"RELATIVE PARTS: {relative_parts}\n")
+
+    try:
+        # Find the index in the base path where the relative path starts
+        start_index = base_parts.index(relative_parts[0])
+
+        # Replace the corresponding parts of the base path with the relative path
+        merged_path = os.path.join(*base_parts[:start_index], *relative_parts)
+
+        # Detect whether the original base path was absolute.
+        #  * On Windows:  os.path.splitdrive returns ('C:', '\\path\\to\\file')
+        #  * On POSIX:    splitdrive returns ('', '/path/to/file')
+
+        if os.path.isabs(base_path):
+            drive, _ = os.path.splitdrive(base_path)     # e.g. 'C:'  or  ''
+            root = drive if drive else os.sep             # 'C:' on Windows, '/' on Linux
+
+            # If the join removed the root, re‑add it.
+            if not merged_path.startswith(root):
+                # Strip *any* leading separator that the join might have left
+                merged_path = os.path.join(root, merged_path.lstrip(os.sep))
+
+        return merged_path
+    except ValueError as e:
+        print(f"ERROR MERGING PATHS: {e}")
+        # If the relative path doesn't match the base path, return as is
+        return os.path.join(base_path, relative_path)
 
 def load_triangle_gl_list(gl_commands, triangles, extra_data):
     """
