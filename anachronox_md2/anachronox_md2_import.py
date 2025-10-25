@@ -388,6 +388,7 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
                 print(f"Warning: Error opening image {candidate_path}: {e}")
     return None, None
 
+
 def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str):
     texture_paths = {}
     skin_resolutions = {}
@@ -698,16 +699,36 @@ def merge_paths(base_path, relative_path):
     """
     # Normalize paths to handle different formats and separators
     base_parts = os.path.normpath(base_path).split(os.sep)
-    relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep)
+    relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep) 
+    
+    relative_parts.remove("models") # "models" appears to be a parent folder that we should replace w/ wherever files are extracted to
+
+    # print(f"\nBASE PARTS: {base_parts}")
+    # print(f"RELATIVE PARTS: {relative_parts}\n")
 
     try:
         # Find the index in the base path where the relative path starts
         start_index = base_parts.index(relative_parts[0])
-        
+
         # Replace the corresponding parts of the base path with the relative path
         merged_path = os.path.join(*base_parts[:start_index], *relative_parts)
+
+        # Detect whether the original base path was absolute.
+        #  * On Windows:  os.path.splitdrive returns ('C:', '\\path\\to\\file')
+        #  * On POSIX:    splitdrive returns ('', '/path/to/file')
+
+        if os.path.isabs(base_path):
+            drive, _ = os.path.splitdrive(base_path)     # e.g. 'C:'  or  ''
+            root = drive if drive else os.sep             # 'C:' on Windows, '/' on Linux
+
+            # If the join removed the root, re‑add it.
+            if not merged_path.startswith(root):
+                # Strip *any* leading separator that the join might have left
+                merged_path = os.path.join(root, merged_path.lstrip(os.sep))
+
         return merged_path
-    except ValueError:
+    except ValueError as e:
+        print(f"ERROR MERGING PATHS: {e}")
         # If the relative path doesn't match the base path, return as is
         return os.path.join(base_path, relative_path)
 
