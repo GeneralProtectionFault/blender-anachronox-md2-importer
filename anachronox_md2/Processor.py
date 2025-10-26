@@ -1,4 +1,6 @@
 import bpy
+from bpy.props import IntProperty, BoolProperty
+
 from dataclasses import dataclass, fields
 from typing import List
 import math
@@ -35,100 +37,149 @@ class ImportAnimationFrames(bpy.types.Operator):
     def execute(self, context):
         self.finished = False
 
-        bpy.ops.object.mode_set(mode = 'EDIT')
+        frames = ModelVars.my_object.frames
+        frame_count = len(frames)
+        if frame_count == 0:
+            return {'CANCELLED'}
 
-        frame_count = len(ModelVars.my_object.frames)
+        obj = ModelVars.obj
+        mesh = obj.data
 
-        frame_index_list = list()
-        # frame_x_values = list()
-        # frame_y_values = list()
-        # frame_z_values = list()
-        for frame_index, frame in enumerate(ModelVars.my_object.frames): 
-            frame_index_list.append(frame_index * 2)
-        #     frame_x_values.append(ModelVars.all_verts[frame_index][0])
-        #     frame_y_values.append(ModelVars.all_verts[frame_index][1])
-        #     frame_z_values.append(ModelVars.all_verts[frame_index][2])
-        
-        # frame_co_values = list()
-        # frame_co_values.append(frame_x_values)
-        # frame_co_values.append(frame_y_values)
-        # frame_co_values.append(frame_z_values)
+        # Ensure mesh has its own animation container (we will put Actions here)
+        mesh.animation_data_create()
+        # Make sure object.animation_data exists too but keep object.action None so NLA on mesh is authoritative
+        obj.animation_data_create()
+        obj.animation_data.action = None
 
-        # Sets the end frame on the timeline to what will be the last frame
-        bpy.context.scene.frame_end = frame_index_list[-1]
+        ModelVars.current_anim_name = None
 
-        ModelVars.obj.animation_data_create()
-       
+        current_action = None
+        current_chunk_start_global = None
+        current_chunk_length = 0
+        created_tracks = []
+
         print("Looping through frames...")
-        for frame_index, frame in enumerate(ModelVars.my_object.frames):
-        # for idx, v in enumerate(ModelVars.obj.data.vertices):
-            # Update progress every 10 frames
+
+        orig_mode = None
+        if bpy.context.object:
+            orig_mode = bpy.context.object.mode
+
+        def _ensure_fcurve(action, data_path, index):
+            fcu = action.fcurves.find(data_path, index=index)
+            if fcu is None:
+                fcu = action.fcurves.new(data_path=data_path, index=index)
+            return fcu
+
+        def _insert_vertex_into_action(action, vert_index, co, frame):
+            data_path = f"vertices[{vert_index}].co"    # note: on mesh action, data_path is relative to the Mesh ID
+            for i in range(3):
+                fcu = _ensure_fcurve(action, data_path, i)
+                fcu.keyframe_points.insert(frame, co[i], options={'FAST'})
+
+        for frame_index, frame in enumerate(frames):
             if (frame_index % 10 == 0):
                 showProgress(frame_index, frame_count)
 
-            action = ModelVars.obj.animation_data.action = bpy.data.actions.new(name=f"{ModelVars.object_name}")
+            global_frame = frame_index * 2
+            anim_name = frame.name[: findnth(frame.name, '_', 2)]
 
-            # fcurve_x = action.fcurves.new(f"vertices", index = 0, action_group = "X Position (Mesh Vertex)")
-            
-            # fcurve_x.keyframe_points.add(count=len(ModelVars.my_object.frames))
-            # # fcurve_x.keyframe_points.foreach_set("co", \
-            # # [x for co in zip(frame_index_list, flatten_extend(ModelVars.all_verts[frame_index])) for x in co])
-            # # [x for co in zip(frame_index_list, frame_x_values) for x in co])
+            if anim_name != ModelVars.current_anim_name:
+                # finalize previous action (normalize fcurves and push to mesh NLA)
+                if current_action is not None:
+                    for fcu in current_action.fcurves:
+                        if not fcu.keyframe_points:
+                            continue
+                        min_x = min(kp.co.x for kp in fcu.keyframe_points)
+                        if min_x != 0.0:
+                            for kp in fcu.keyframe_points:
+                                kp.co.x -= min_x
+                            fcu.update()
 
-            # fcurve_x.sampled_points.foreach_set("co", \
-            # [x for co in zip(frame_index_list, flatten_extend(ModelVars.all_verts[frame_index])) for x in co])
-            
-            # fcurve_x.update()
+                    # clear mesh active action so mesh NLA is authoritative
+                    mesh.animation_data.action = None
 
+                    # create NLA track+strip on mesh.animation_data
+                    ad = mesh.animation_data
+                    track = ad.nla_tracks.new()
+                    track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
+                    strip = track.strips.new(name=current_action.name, start=int(0), action=current_action)
+                    strip.action_frame_start = 0
+                    strip.action_frame_end = int(current_chunk_length)
+                    strip.frame_end = int(current_chunk_length)
+                    created_tracks.append(track)
 
+                    # mute other mesh tracks, unmute this one for clarity
+                    for t in ad.nla_tracks:
+                        t.mute = True
+                    track.mute = False
 
+                # create new Action on the mesh datablock and set it active there
+                act_name = f"{ModelVars.object_name}_{anim_name}"
+                current_action = bpy.data.actions.new(name=act_name)
+                mesh.animation_data.action = current_action   # assign action to mesh (mesh ID)
+                ModelVars.current_anim_name = anim_name
+                current_chunk_start_global = global_frame
+                current_chunk_length = 0
 
+            local_frame = int(global_frame - current_chunk_start_global)
 
-            anim_name = frame.name[ : findnth(frame.name, '_', 2)]
-            # Indicates we're on the next animation!
-            # if anim_name != ModelVars.current_anim_name:
-            #     ModelVars.current_anim_name = anim_name
-            #     ModelVars.animation_list.append(anim_name)
+            # fast write vertex coords
+            mesh.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
 
-            #     # Create a new action for the new animation
-            #     # bpy.ops.nla.actionclip_add(action=f"{ModelVars.object_name}_{anim_name}")
-            #     # print(f"New action created: {ModelVars.object_name}_{anim_name}")
-            
-            # data_path = "vertices[%d].co"
-            # data_path = "vertices[%d]"
+            # ensure OBJECT mode for safe operations
+            if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
 
-            # fcurves = [action.fcurves.new(data_path % v.index, index =  i) for i in range(3)]    
-            # for n, fcurve in enumerate(fcurves):
-            #     fcurve.keyframe_points.add(count=len(ModelVars.my_object.frames))
-                
-            #     #fcurve.keyframe_points.insert(frame_index_list[idx], frame_co_values[idx], options={'FAST'})
-                
-            #     fcurve.keyframe_points.foreach_set("co", \
-            #     [x for co in zip(frame_index_list, flatten_extend(frame_co_values[n])) for x in co])
+            # insert keyframes into the mesh-level action fcurves
+            for idx, v in enumerate(mesh.vertices):
+                v.co = ModelVars.all_verts[frame_index][idx]
+                _insert_vertex_into_action(current_action, idx, v.co, local_frame)
 
+            current_chunk_length = max(current_chunk_length, local_frame)
 
+        # finalize last chunk
+        if current_action is not None:
+            for fcu in current_action.fcurves:
+                if not fcu.keyframe_points:
+                    continue
+                min_x = min(kp.co.x for kp in fcu.keyframe_points)
+                if min_x != 0.0:
+                    for kp in fcu.keyframe_points:
+                        kp.co.x -= min_x
+                    fcu.update()
 
-            # for frm, value in zip(frame_index_list, flatten_extend(ModelVars.all_verts[frame_index])):
-            #     insert_keyframe(fcurves, frm, value)   
-            
+            mesh.animation_data.action = None
 
+            ad = mesh.animation_data
+            track = ad.nla_tracks.new()
+            track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
+            strip = track.strips.new(name=current_action.name, start=int(0), action=current_action)
+            strip.action_frame_start = 0
+            strip.action_frame_end = int(current_chunk_length)
+            strip.frame_end = int(current_chunk_length)
+            created_tracks.append(track)
 
-            ModelVars.obj.data.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
+            for t in ad.nla_tracks:
+                t.mute = True
+            track.mute = False
 
-            for idx, v in enumerate(ModelVars.obj.data.vertices):
-                ModelVars.obj.data.vertices[idx].co = ModelVars.all_verts[frame_index][idx]
-                # parameter index = 0, 1 or 2 restricts to x, y or z axis
-                success = v.keyframe_insert('co', frame = frame_index * 2) # Back in the olden days, we only had them thar 30 frames/second
-                if not success:
-                    print(f'Keyframe insert failed, Frame: {frame_index}')
+        # restore mode
+        if orig_mode and bpy.context.object and bpy.context.object.mode != orig_mode:
+            bpy.ops.object.mode_set(mode=orig_mode)
 
-        
-            
-            
+        # set scene range to longest action length
+        max_len = 0
+        for t in created_tracks:
+            for s in t.strips:
+                max_len = max(max_len, int(s.frame_end))
+        if max_len > 0:
+            bpy.context.scene.frame_start = 0
+            bpy.context.scene.frame_end = max_len
 
-        bpy.ops.object.mode_set(mode = 'OBJECT')
+        print("Imported animations (mesh NLA tracks):", [t.name for t in created_tracks])
+        showProgress(frame_count, frame_count, "Import complete.")
         return {'FINISHED'}
-    
+
 
 
 
@@ -136,18 +187,18 @@ class ImportAnimationFrames(bpy.types.Operator):
 class ImportMaterials(bpy.types.Operator):
     bl_idname = "wm.import_materials"
     bl_label = "Import Materials"
-    
+
     def execute(self, context):
         self.finished = False
-        
+
         # New method to assign materials per skin/texture (we only have the single triangle reference for tagged surfaces, and they are not 1-to-1 with skins)
         texpath=0
         print("***MATERIALS***")
         for skin_index, skin in enumerate(ModelVars.my_object.skin_names):
-            
+
             material_name = ("M_" + ModelVars.my_object.skin_names[skin_index].rstrip("\x00"))
             print(f"Blender Material name: {material_name}")
-            
+
             mat = bpy.data.materials.new(name=material_name)
             mat.use_nodes = True
             bsdf = mat.node_tree.nodes["Principled BSDF"]
@@ -192,17 +243,17 @@ class ImportMaterials(bpy.types.Operator):
 
 
 
-        # If there are multiple textures, we need to reassign the triangles 
+        # If there are multiple textures, we need to reassign the triangles
         if len(ModelVars.my_object.skin_names) > 1:
             bpy.context.tool_settings.mesh_select_mode = [False, False, True]
-            
+
             for material_index, material in enumerate(ModelVars.obj.data.materials):
                 bpy.context.object.active_material_index = material_index
 
                 # print(f"Current material index: {bpy.context.object.active_material_index}")
                 bpy.ops.object.mode_set(mode = 'EDIT')
                 bpy.ops.mesh.select_all(action = 'DESELECT')
-                
+
                 skin_triangle_list = list()
                 # triangle is key, skin index is the value
                 for tri in ModelVars.my_object.triangle_skin_dict:
@@ -223,8 +274,8 @@ class ImportMaterials(bpy.types.Operator):
         # Apply new scale set on import screen
         # bpy.ops.view3d.snap_cursor_to_center({'area':view3d})
         # bpy.ops.transform.translate(value=(0, 0, 1), orient_type='GLOBAL')
-        
-        # put cursor at origin 
+
+        # put cursor at origin
         # bpy.context.scene.cursor.location = Vector((0.0, 0.0, 0.0))
         # bpy.context.scene.cursor.rotation_euler = Vector((0.0, 0.0, 0.0))
 
@@ -233,8 +284,8 @@ class ImportMaterials(bpy.types.Operator):
         print("Setting origin to geometry...")
         bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
         # print("Setting origin to cursor...")
-        # bpy.ops.object.origin_set(type='ORIGIN_CURSOR')        
-        
+        # bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+
         # REMOVED - This doesn't work on all frames ********************************
         # Any rotation needs to be applied to all frames
         # for frame_index, frame in enumerate(ModelVars.my_object.frames):
@@ -272,10 +323,10 @@ class ImportMaterials(bpy.types.Operator):
             # bpy.ops.mesh.normals_make_consistent(inside=True) # recalculate inside
             # go object mode again
             bpy.ops.object.editmode_toggle()
-            
+
         print("YAY NO ERRORS!!")
         return {'FINISHED'}
-  
+
 
 
 

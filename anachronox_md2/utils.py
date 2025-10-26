@@ -2,6 +2,10 @@ import bpy
 
 
 class ModelVars(object):
+    """
+    Class used to store what we need to process the model.
+    Essentially a global object so we don't have confusion between Operators, etc...
+    """
     my_object = {}
     obj = {}
     animation_list = list()
@@ -10,8 +14,8 @@ class ModelVars(object):
     md2_path = ""
     model_path = ""
     mesh = {}
-    x_rotate = 0 
-    y_rotate = 0 
+    x_rotate = 0
+    y_rotate = 0
     z_rotate = 0
     apply_transforms = True
     recalc_normals = False

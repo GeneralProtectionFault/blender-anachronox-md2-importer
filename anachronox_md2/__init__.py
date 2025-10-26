@@ -2,8 +2,8 @@
 bl_info = {
     "name": "Anachronox MD2 Model Importer",
     "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "version": (1,0,4),
-    "blender": (4,3,0),
+    "version": (1,1,2),
+    "blender": (3,6,0),
     "location": "File > Import > Anachronox (.md2)",
     "description": "Import Anachronox variant of MD2 (Quake II) models",
     "warning": "",
@@ -36,7 +36,7 @@ from .Processor import ImportAnimationFrames, ImportMaterials, QueueRunner
 
 class ImportSomeData(bpy.types.Operator, ImportHelper):
     """Loads a Quake 2 MD2 File"""
-   
+
     # Added a bunch of nifty import options so you do not have to do the same tasks 1000+ times when converting models to another engine. -  Creaper
 
     bl_idname = "import_md2.some_data"  # important since its how bpy.ops.import_test.some_data is constructed
@@ -50,7 +50,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
         options={'HIDDEN'},
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
-    
+
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
     displayed_name: bpy.props.StringProperty(name="Outliner name",
@@ -64,7 +64,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
     # Add a texture scale value.  Use this to properly calculate the UV/ST data if someone wants to use an upscaled texture
     texture_scale: bpy.props.FloatProperty(name="Texture Scale",
                                         description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",
-                                        default=1)          
+                                        default=1)
 
     # Added support to rotate the model to the desired scale input at import screen
     x_rotate: bpy.props.FloatProperty(name="X-axis Rotate",
@@ -79,7 +79,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
                                         description="Rotation adjusment on Z-axis for the model.\nGood for if you need models rotated and don't want to manually do it for each model upon import.",
                                         soft_max=360,
                                         soft_min=-360)
- 
+
     # Added option to apply all of the above transforms. Some issue is making it not work quite right yet
     apply_transforms: BoolProperty(name="Apply transforms",
                                         description="Applies the previous transforms.\nIf you need the scale and rotation transforms applied upon import select this.",
@@ -95,7 +95,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
                                         description="Clean the Blender scene of any unused data blocks including unused Materials, Textures and Names.\nYou typically want this set.",
                                         default=True)
 
-    
+
     def execute(self, context):
         try:
             return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
@@ -115,13 +115,15 @@ classes = [
     ImportSomeData
 ]
 
+
 def register():
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-    
+
     for cls in classes:
         # print(f'Registering: {cls}')
         bpy.utils.register_class(cls)
 
+    # This adds the Operators that will run when the macro is called according to bl_idname - Processor.py file
     QueueRunner.define("WM_OT_import_animation_frames")
     QueueRunner.define("WM_OT_import_materials")
 
@@ -129,7 +131,7 @@ def register():
 # called when addon is deactivated (removed script from menu)
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-    
+
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 

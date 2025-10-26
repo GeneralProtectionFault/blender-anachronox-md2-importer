@@ -20,6 +20,8 @@ import math # for applying optional rotate on import
 
 from .Processor import QueueRunner
 
+SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]
+
 
 # path to python.exe
 if platform.system() == "Linux":
@@ -46,7 +48,7 @@ else:
 try:
     # upgrade pip
     subprocess.call([python_exe, "-m", "ensurepip"])
-    
+
     # This doesn't jive well with Blender's Python environment for whatever reason...
     # subprocess.call([python_exe, "-m", "pip", "install", "--upgrade", "pip"])
 except Exception as argument:
@@ -123,7 +125,7 @@ class md2_t:
     ofs_frames: int                     # offset to frame data
     ofs_glcmds: int                     # offset to opengl commands
     ofs_end: int                        # offset to end of file
-    
+
     texture_count: int                  # number of different textures the model uses
     ofs_glcmd_counts: int               # offset to the counts of # of gl commands for each texture
     num_LODdata1: int                   # Float LOD data 1
@@ -131,7 +133,7 @@ class md2_t:
     num_LODdata3: int                   # Float LOD data 3
     num_tsurf: int                      # number of Tagged Surfaces
     ofs_tsurf: int                      # offset to Tagged surfaces 
-    
+
 
 
 @dataclass
@@ -174,9 +176,9 @@ class md2_object:
     texture_paths: list()
 
 
-"""
-Functions used to create an MD2 Object
-"""
+
+# Functions used to create an MD2 Object
+
 def load_gl_commands(gl_command_bytes):
     """
     Loads gl_commands which are a list of GL_TRIANGLE_STRIP and GL_TRIANGLE_FAN calls that reduce fps
@@ -207,7 +209,7 @@ def load_gl_commands(gl_command_bytes):
             vertex_index = struct.unpack("<i", gl_command_bytes[offset + 12 * i + 8 : offset + 12 * i + 12]) # 4 bytes - 1 int
             gl_vertices.append(glCommandVertex_t(*s_and_t, *vertex_index))
         # print(gl_vertices)
-        
+
         offset += 12 * num_verts
         gl_commands.append(glCommand_t(mode, gl_vertices))
     return gl_commands
@@ -252,13 +254,13 @@ def load_frames(frames_bytes, header, model_scale):
         resolution_bytes = 3
 
     for current_frame_number in range(header.num_frames):
-        
-        frame_start = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number  
+
+        frame_start = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number
 
         # Get any scaling for this frame of animation
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start : frame_start + 12]))
-        
-        
+
+
         # print(scale)
         # Get any movement for this frame of animation
         translate = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start + 12 : frame_start + 24]))
@@ -313,7 +315,7 @@ def load_frames(frames_bytes, header, model_scale):
             # print(f"Vector: {vector}")
             vertex = vertex_t(vector, normal)
             verts.append(vertex)
-            
+
 
         name = name.rstrip("\x00")
         frame_names.append(name)
@@ -353,7 +355,7 @@ def load_header(file_bytes):
     # After the gl commands lump, there is a short (2 bytes) number for each skin/texture for the model.
     # Each number represents the number of gl commands (not vertices or frames) which the corresponding texture applies to.
     # Simplifying, each gl command is essentially a triangle, but in the order of how open gl would draw them, not the vertex order.
-    
+
     # Prim is abbreviating "primitive," which is another way to refer to a gl command, as it ends up being a primitive shape/polygon.
     # In the case of Quake II/Anachronox models being dealt with here, triangles only.
     header.num_prim = header.num_skins
@@ -361,7 +363,6 @@ def load_header(file_bytes):
 
     return header
 
-SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]
 
 def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_formats: list[str]):
     """
@@ -392,7 +393,7 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
 def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str):
     texture_paths = {}
     skin_resolutions = {}
-    
+
     print("***TEXTURES***")
 
     model_file_path_obj = Path(model_file_full_path_str)
@@ -415,7 +416,7 @@ def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str
 
         # Attempt 1: Look for existing file of given name and supported image format
         # Based on embedded texture name in the model's directory or a subdirectory
-        
+
         # Path in .md2 directory
         # Added support for autoloading textures from .md2 directory
         texture_base_candidate1 = initial_model_dir / embedded_texture_name_stem
@@ -432,7 +433,7 @@ def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str
             found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
                 texture_base_candidate2, SUPPORTED_IMAGE_FORMATS
             )
-        
+
         # if a texture is not located insert a blank texture name into array ... and assign a bum resolution
         if not found_texture_file_path:
             skin_resolutions[skin_index] = (64, 64) 
@@ -445,7 +446,7 @@ def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str
         # --- MDA Fallback ---
         if texture_paths[skin_index] == "":
             print("Unable to locate texture, trying to find associated MDA file...")
-            
+
             # Look for MDA in current folder
             mda_path = initial_model_dir / (model_filename_stem + ".mda")
             if not mda_path.is_file():
@@ -473,7 +474,7 @@ def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str
                 if mda_texture_rel_path_str:
                     current_texture_search_base_str = merge_paths(str(initial_model_dir), mda_texture_rel_path_str)
                     print(f"Path after MDA merge: {current_texture_search_base_str}")
-                    
+
                     mda_derived_tex_base = Path(current_texture_search_base_str)
                     print(f'Texture Path (from MDA): {mda_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
                     found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
@@ -523,8 +524,9 @@ def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str
 
     print("\n")
     print(f"Skin resolution info:\n{skin_resolutions}")
-    
+
     return texture_paths, skin_resolutions
+
 
 def extract_file_value(file_path):
     """
@@ -538,22 +540,24 @@ def extract_file_value(file_path):
 
     # Regular expression to match the specific construct
     pattern = r"#\s*0\s*!bitmap\s*file\s*=\s*(.+)"
-    
+
     match = re.search(pattern, content)
     if match:
         return match.group(1).strip()
     return None
+
 
 def parse_material_file(file_path):
     """
     Reads a text file, locates all "map" element values inside the
     structure profile -> skin -> pass, and groups them by "profile" value.
     """
+
     # Use defaultdict to automatically create list for new profiles
     results = defaultdict(list)
-    
+
     current_profile_name = None
-    
+
     # Stack to keep track of block types and the brace level they opened at.
     # Each element: (block_type_str, brace_level_opened_at)
     # block_type_str can be 'profile', 'skin', 'pass', or 'anonymous' (for unrecognized blocks)
@@ -595,7 +599,7 @@ def parse_material_file(file_path):
                 elif line.startswith("pass"):
                     # Similar logic for 'pass', needs to be in a 'skin' context.
                     pending_keyword = "pass"
-                
+
                 # 2. Check for "map" lines.
                 # This must be within the specific hierarchy: profile -> skin -> pass.
                 # The regex match is done here, independent of whether this line also opens/closes a block.
@@ -609,7 +613,7 @@ def parse_material_file(file_path):
                             map_value = map_match.group(1)
                             results[current_profile_name].append(map_value)
                             spike = True
-                
+
                 # 3. Handle block opening '{'.
                 # This can be on its own line or at the end of a keyword line (e.g., "skin {").
                 if line.endswith("{"):
@@ -640,11 +644,11 @@ def parse_material_file(file_path):
                         block_context_stack.append(("anonymous", current_brace_level))
                     # else: A keyword was pending but the line was e.g. "keyword {" and keyword wasn't tracked
                     #       This case is covered by the above, or it's an anonymous block if pending_keyword was None.
-                    
+
                     current_brace_level += 1
                     pending_keyword = None # The '{' has consumed the pending keyword
                     pending_profile_name_candidate = None
-                
+
                 # 4. Handle block closing '}'.
                 elif line == "}":
                     if current_brace_level > 0: # Ensure we don't go negative
@@ -660,7 +664,7 @@ def parse_material_file(file_path):
                         if closed_block_type == "profile":
                             current_profile_name = None # Exited current profile's scope
                     # else: Mismatched brace or closing an untracked anonymous block.
-                    
+
                     pending_keyword = None # A '}' also clears any pending keyword expectation.
                     pending_profile_name_candidate = None
 
@@ -682,8 +686,9 @@ def parse_material_file(file_path):
     except Exception as e:
         print(f"An error occurred during parsing: {e} (line {line_num})")
         return None
-        
+
     return dict(results) # Convert defaultdict to dict for cleaner output if preferred
+
 
 def merge_paths(base_path, relative_path):
     """
@@ -700,7 +705,7 @@ def merge_paths(base_path, relative_path):
     # Normalize paths to handle different formats and separators
     base_parts = os.path.normpath(base_path).split(os.sep)
     relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep) 
-    
+
     relative_parts.remove("models") # "models" appears to be a parent folder that we should replace w/ wherever files are extracted to
 
     # print(f"\nBASE PARTS: {base_parts}")
@@ -731,6 +736,7 @@ def merge_paths(base_path, relative_path):
         print(f"ERROR MERGING PATHS: {e}")
         # If the relative path doesn't match the base path, return as is
         return os.path.join(base_path, relative_path)
+
 
 def load_triangle_gl_list(gl_commands, triangles, extra_data):
     """
@@ -776,7 +782,7 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
 
                 if vertex_match_count >= 3:
                     triangle_skin_dict[triangle_index] = extra_data_index
-            
+
             # Each extra data value is a number of gl commands to draw the given texture, NOT an offset
             # So, in order to track when to switch, the extra data total will keep a record of the SUM of these values, so the (gl) command index 
             # can be used to know when we've hit the gl command on which we should proceed to the next texture
@@ -797,7 +803,6 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
                 print(f"Triangle {triangle_index} is not in triangle=>skin dictionary!")
 
     return triangle_skin_dict
-
 
 
 def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_resolutions, triangle_gl_dictionary, texture_scale):
@@ -822,14 +827,21 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_r
 
     scale_offset = -2
     texture_skin_dict = {}
+    # Iterate over all coordinates
     for coord_index, coordinate in enumerate(texture_coordinates):
+        # For every coordinate, check all the triangles...
         for triangle_index, triangle in enumerate(triangles):
+            # If any of the 3 verts (by index) of the triangle are this coordinate...
             if triangle.textureIndices[0] == coord_index or triangle.textureIndices[1] == coord_index or triangle.textureIndices[2] == coord_index:
+                # Associate this TEXTURE with this coordinate - this is necessary because the UVs need to account for different texture sizes on multiple-texture models
                 texture_skin_dict[coord_index] = triangle_gl_dictionary[triangle_index] # dictionary returns the skin previously assigned
     
     # print(f"texture skin dictionary size: {len(texture_skin_dict)}")
 
+    # Get the s,t (u,v) for each coordinate
+    # This uses the above association of coordinate to texture, calculating the UV to be proportional to the width & height of the texture it goes with
     for coord_index, coord in enumerate(texture_coordinates):
+        # skin_resolutions returns the x & y size of the texture in question
         # offset here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
         coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale) + scale_offset)
         coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale) + scale_offset)
@@ -897,7 +909,6 @@ def load_file(path, texture_scale, model_scale):
 
     model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_dictionary, vertices, triangle_skin_dictionary, extra_data, texture_paths)
     return model
-
 
 
 def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
@@ -1018,10 +1029,9 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
                 uv_layer.data[loop_idx].uv = [0.016129032258064516, 0.6587301587301587]
             else:
                 uv_layer.data[loop_idx].uv = uvs_others[ModelVars.my_object.triangles[face_idx].textureIndices[idx]]
-            
-            
 
-                
+
+
     """ Create animation for animated models: set keyframe for each vertex in each frame individually """
     # Frame names follow the format: amb_a_001, amb_a_002, etc...
     # A new animation will have a new prefix
@@ -1038,7 +1048,7 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
     endProgress()
     return {'FINISHED'} # no idea, seems to be necessary for the UI
-        
+
 
 
 
