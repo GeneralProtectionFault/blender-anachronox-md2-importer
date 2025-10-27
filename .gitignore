@@ -16,3 +16,6 @@ Build/
 # For backup/comparison
 anachronox_md2_import_master.py
 anachronox_md2_import.old.py
+
+# zipped addon file for Blender
+anachronox_md2.zip

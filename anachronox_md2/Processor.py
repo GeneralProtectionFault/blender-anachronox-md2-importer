@@ -84,56 +84,67 @@ class ImportAnimationFrames(bpy.types.Operator):
             anim_name = frame.name[: findnth(frame.name, '_', 2)]
 
             if anim_name != ModelVars.current_anim_name:
-                # finalize previous action (normalize fcurves and push to mesh NLA)
-                if current_action is not None:
-                    for fcu in current_action.fcurves:
-                        if not fcu.keyframe_points:
-                            continue
-                        min_x = min(kp.co.x for kp in fcu.keyframe_points)
-                        if min_x != 0.0:
-                            for kp in fcu.keyframe_points:
-                                kp.co.x -= min_x
-                            fcu.update()
+                print(f"Processing animation: {anim_name} - Frame #: {frame_index}")
 
-                    # clear mesh active action so mesh NLA is authoritative
-                    mesh.animation_data.action = None
+                if not anim_name == '':
+                    # finalize previous action (normalize fcurves and push to mesh NLA)
+                    if current_action is not None:
+                        for fcu in current_action.fcurves:
+                            if not fcu.keyframe_points:
+                                continue
+                            min_x = min(kp.co.x for kp in fcu.keyframe_points)
+                            if min_x != 0.0:
+                                for kp in fcu.keyframe_points:
+                                    kp.co.x -= min_x
+                                fcu.update()
 
-                    # create NLA track+strip on mesh.animation_data
-                    ad = mesh.animation_data
-                    track = ad.nla_tracks.new()
-                    track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
-                    strip = track.strips.new(name=current_action.name, start=int(0), action=current_action)
-                    strip.action_frame_start = 0
-                    strip.action_frame_end = int(current_chunk_length)
-                    strip.frame_end = int(current_chunk_length)
-                    created_tracks.append(track)
+                        # clear mesh active action so mesh NLA is authoritative
+                        mesh.animation_data.action = None
 
-                    # mute other mesh tracks, unmute this one for clarity
-                    for t in ad.nla_tracks:
-                        t.mute = True
-                    track.mute = False
+                        # create NLA track+strip on mesh.animation_data
+                        ad = mesh.animation_data
+                        track = ad.nla_tracks.new()
+                        track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
+                        strip = track.strips.new(name=current_action.name, start=int(0), action=current_action)
+                        strip.action_frame_start = 0
+                        strip.action_frame_end = int(current_chunk_length)
+                        strip.frame_end = int(current_chunk_length)
+                        created_tracks.append(track)
 
-                # create new Action on the mesh datablock and set it active there
-                act_name = f"{ModelVars.object_name}_{anim_name}"
-                current_action = bpy.data.actions.new(name=act_name)
-                mesh.animation_data.action = current_action   # assign action to mesh (mesh ID)
-                ModelVars.current_anim_name = anim_name
+                        # mute other mesh tracks, unmute this one for clarity
+                        for t in ad.nla_tracks:
+                            t.mute = True
+                        track.mute = False
+
+                    # create new Action on the mesh datablock and set it active there
+                    act_name = f"{ModelVars.object_name}_{anim_name}"
+                    current_action = bpy.data.actions.new(name=act_name)
+                    mesh.animation_data.action = current_action   # assign action to mesh (mesh ID)
+
+                else:
+                    current_action = None
+                    print("SKIPPING BLANK ANIMATION NAME...")
+
+                # Do this whether it's a blank animation or not
                 current_chunk_start_global = global_frame
                 current_chunk_length = 0
+                ModelVars.current_anim_name = anim_name
+
 
             local_frame = int(global_frame - current_chunk_start_global)
 
-            # fast write vertex coords
-            mesh.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
+            if current_action is not None:
+                # fast write vertex coords
+                mesh.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
 
-            # ensure OBJECT mode for safe operations
-            if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-                bpy.ops.object.mode_set(mode='OBJECT')
+                # ensure OBJECT mode for safe operations
+                if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+                    bpy.ops.object.mode_set(mode='OBJECT')
 
-            # insert keyframes into the mesh-level action fcurves
-            for idx, v in enumerate(mesh.vertices):
-                v.co = ModelVars.all_verts[frame_index][idx]
-                _insert_vertex_into_action(current_action, idx, v.co, local_frame)
+                # insert keyframes into the mesh-level action fcurves
+                for idx, v in enumerate(mesh.vertices):
+                    v.co = ModelVars.all_verts[frame_index][idx]
+                    _insert_vertex_into_action(current_action, idx, v.co, local_frame)
 
             current_chunk_length = max(current_chunk_length, local_frame)
 
@@ -162,6 +173,20 @@ class ImportAnimationFrames(bpy.types.Operator):
             for t in ad.nla_tracks:
                 t.mute = True
             track.mute = False
+
+
+        # unmute only the first track, mute the rest
+        for i, t in enumerate(created_tracks):
+            t.mute = (i != 0)
+
+
+        # Find an area/region of type 'NLA' to provide context for the operator
+        nla_area = None
+        for area in bpy.context.window.screen.areas:
+            if area.type == 'NLA':
+                nla_area = area
+                break
+
 
         # restore mode
         if orig_mode and bpy.context.object and bpy.context.object.mode != orig_mode:
