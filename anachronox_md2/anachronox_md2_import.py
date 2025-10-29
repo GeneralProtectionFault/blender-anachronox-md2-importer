@@ -505,7 +505,8 @@ def load_texture_paths_and_skin_resolutions(skin_names):
                     print("⛔ Warning: MDA file parsed to empty grouped_maps.")
 
                 if mda_texture_rel_path_str:
-                    current_texture_search_base_str = merge_paths(str(initial_model_dir), mda_texture_rel_path_str)
+                    print(f"MDA relative path: {mda_texture_rel_path_str}")
+                    current_texture_search_base_str = merge_paths(str(initial_model_dir), str(mda_texture_rel_path_str))
                     print(f"ℹ️ Path after MDA merge: {current_texture_search_base_str}")
 
                     mda_derived_tex_base = Path(current_texture_search_base_str)
@@ -646,6 +647,11 @@ def parse_material_file(file_path):
                         if block_context_stack[-1][0] == 'pass' and \
                            block_context_stack[-2][0] == 'skin':
                             map_value = map_match.group(1)
+
+                            # Some MDAs use forward slashes, some use back slashes :-| :-| :-|...
+                            map_value = map_value.replace('\\','/')
+
+                            print(f"MAP VALUE ------------- {map_value}")
                             results[current_profile_name].append(map_value)
                             spike = True
 
@@ -725,6 +731,13 @@ def parse_material_file(file_path):
     return dict(results) # Convert defaultdict to dict for cleaner output if preferred
 
 
+
+def truncate_after(lst, marker):
+    if marker in lst:
+        return lst[:lst.index(marker)]
+    return lst[:]  # unchanged if marker not found
+
+
 def merge_paths(base_path, relative_path):
     """
     Merges a base path with a relative path, replacing the portion
@@ -737,21 +750,44 @@ def merge_paths(base_path, relative_path):
     Returns:
         str: The resulting merged path (e.g., 'c:\\a\\b\\c\\d\\f').
     """
+    print(type(base_path))
+    print(type(relative_path))
+
+
     # Normalize paths to handle different formats and separators
     base_parts = os.path.normpath(base_path).split(os.sep)
     relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep) 
 
-    relative_parts.remove("models") # "models" appears to be a parent folder that we should replace w/ wherever files are extracted to
+    # We need this to be the "models" directory, as referred to in the MDA files, etc...
+    # Problem is, people could have extraced these anywhere, so the "models" folder needs to be whatever the main folder MODELS.DAT content was extracted to
+    # Ergo, we'll try to accomodate all the folder possibilities here... 
 
-    # print(f"\nBASE PARTS: {base_parts}")
-    # print(f"RELATIVE PARTS: {relative_parts}\n")
+    # All 1st-level folders
+    folders_known_in_main_extracted_location = ['background','boots','cine','cube2','cursor','democratus','fatima','fx','grumpos','grumpos2x', \
+    'interface','intro','monsters','mystech','newface','npcs','objects','paco','pal','proc','rho','stiletto']
+
+    # Get the first matching item
+    match = next((item for item in folders_known_in_main_extracted_location if item in base_parts), None)
+    if match:
+        base_parts = truncate_after(base_parts, match)
+
+    
+
+    if "models" in relative_parts:
+        relative_parts.remove("models") # "models" appears to be a parent folder that we should replace w/ wherever files are extracted to
+
+    print(f"\nBASE PARTS: {base_parts}")
+    print(f"RELATIVE PARTS: {relative_parts}\n")
 
     try:
         # Find the index in the base path where the relative path starts
-        start_index = base_parts.index(relative_parts[0])
+        if any(item in base_parts for item in relative_parts):
+            start_index = base_parts.index(relative_parts[0])
 
-        # Replace the corresponding parts of the base path with the relative path
-        merged_path = os.path.join(*base_parts[:start_index], *relative_parts)
+            # Replace the corresponding parts of the base path with the relative path
+            merged_path = os.path.join(*base_parts[:start_index], *relative_parts)
+        else:
+            merged_path = os.path.join(*base_parts, *relative_parts)
 
         # Detect whether the original base path was absolute.
         #  * On Windows:  os.path.splitdrive returns ('C:', '\\path\\to\\file')
