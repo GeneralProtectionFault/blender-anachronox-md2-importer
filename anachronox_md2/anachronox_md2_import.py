@@ -11,16 +11,14 @@ import platform
 import re
 from collections import defaultdict
 
-from .utils import startProgress, showProgress, endProgress, ModelVars, findnth
+from .utils import ModelVars, ImportOptions, findnth
 
 from importlib import reload # required when a self-written module is imported that's edited simultaneously
 import math # for applying optional rotate on import
 # import mathutils
 # from mathutils import Vector
 
-from .Processor import QueueRunner
-
-SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]
+SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]     # Texture file formats
 
 
 # path to python.exe
@@ -176,6 +174,22 @@ class md2_object:
     texture_paths: list()
 
 
+def load_import_variables(filepath, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
+    ImportOptions.filepath = filepath
+    ImportOptions.displayed_name = displayed_name
+    ImportOptions.model_scale = model_scale
+    ImportOptions.texture_scale = texture_scale
+    ImportOptions.x_rotate = x_rotate
+    ImportOptions.y_rotate = y_rotate
+    ImportOptions.z_rotate = z_rotate
+    ImportOptions.apply_transforms = apply_transforms
+    ImportOptions.recalc_normals = recalc_normals
+    ImportOptions.use_clean_scene = use_clean_scene
+
+
+
+
+
 
 # Functions used to create an MD2 Object
 
@@ -230,7 +244,7 @@ def load_triangles(triangle_bytes, header):
     return triangles
 
 
-def load_frames(frames_bytes, header, model_scale):
+def load_frames(frames_bytes, header):
     """
     Loads frames
     :param frames_bytes: bytes from md2 file belonging to frames lump
@@ -269,8 +283,8 @@ def load_frames(frames_bytes, header, model_scale):
         # print(f"Translate Before: {translate}")
 
         ##### This applies the scaling set in the UI when importing ##############################################
-        scale = vec3_t(x = scale.x * model_scale, y = scale.y * model_scale, z = scale.z * model_scale)
-        translate = vec3_t(translate.x * model_scale, translate.y * model_scale, translate.z * model_scale)
+        scale = vec3_t(x = scale.x * ImportOptions.model_scale, y = scale.y * ImportOptions.model_scale, z = scale.z * ImportOptions.model_scale)
+        translate = vec3_t(translate.x * ImportOptions.model_scale, translate.y * ImportOptions.model_scale, translate.z * ImportOptions.model_scale)
         ##########################################################################################################
 
         # print(f"Scale After: {scale}")
@@ -390,18 +404,19 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
     return None, None
 
 
-def load_texture_paths_and_skin_resolutions(skin_names, model_file_full_path_str):
+def load_texture_paths_and_skin_resolutions(skin_names):
     texture_paths = {}
     skin_resolutions = {}
 
     print("***TEXTURES***")
 
-    model_file_path_obj = Path(model_file_full_path_str)
+    model_file_path_obj = Path(ImportOptions.filepath)
     initial_model_dir = model_file_path_obj.parent
     model_filename_stem = model_file_path_obj.stem
 
     for skin_index, skin_name_raw in enumerate(skin_names):
         print(f'Path to file: {model_file_path_obj}')
+
         # This variable mirrors 'model_path' from original, which changes based on MDA/ATD
         current_texture_search_base_str = str(initial_model_dir)
         print(f'Folder: {current_texture_search_base_str}')
@@ -835,7 +850,7 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_r
             if triangle.textureIndices[0] == coord_index or triangle.textureIndices[1] == coord_index or triangle.textureIndices[2] == coord_index:
                 # Associate this TEXTURE with this coordinate - this is necessary because the UVs need to account for different texture sizes on multiple-texture models
                 texture_skin_dict[coord_index] = triangle_gl_dictionary[triangle_index] # dictionary returns the skin previously assigned
-    
+
     # print(f"texture skin dictionary size: {len(texture_skin_dict)}")
 
     # Get the s,t (u,v) for each coordinate
@@ -843,31 +858,31 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_r
     for coord_index, coord in enumerate(texture_coordinates):
         # skin_resolutions returns the x & y size of the texture in question
         # offset here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
-        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / texture_scale) + scale_offset)
-        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / texture_scale) + scale_offset)
+        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / ImportOptions.texture_scale) + scale_offset)
+        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / ImportOptions.texture_scale) + scale_offset)
         # print(f"Post Calculation {coord_index}: S: {coord.s}, T: {coord.t}")
 
     return texture_coordinates
 
 
-def load_file(path, texture_scale, model_scale):
+def load_file():
     """
     Master function returning one dataclass object containing all the MD2 information
     :param path:
     :return:
     """
-    with open(path, "rb") as f:  # bsps are binary files
+    with open(ImportOptions.filepath, "rb") as f:
         byte_list = f.read()  # stores all bytes in bytes1 variable (named like that to not interfere with builtin names
     header = load_header(byte_list)
     skin_names = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
     # print(f"Skin Names {skin_names}")
 
     triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
-    frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header, model_scale)
-    texture_paths, skin_resolutions = load_texture_paths_and_skin_resolutions(skin_names, path)
+    frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
+    texture_paths, skin_resolutions = load_texture_paths_and_skin_resolutions(skin_names)
 
     gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_glcmd_counts])
-    
+
     # This is not the "num_glcmds" from the header.  That number counts each vertex as a separate command.  The following is the number of ACTUAL gl commands
     print(f"Parsed {len(gl_commands)} GL Commands.")
 
@@ -881,7 +896,7 @@ def load_file(path, texture_scale, model_scale):
         surface_name = byte_list[tsurf_start_index : tsurf_start_index + 8].decode("ascii", "ignore").rstrip("\x00")
         surface_triange = struct.unpack("<i", byte_list[tsurf_start_index + 8 : tsurf_start_index + 12])[0]
         tsurf_dictionary[surface_name] = surface_triange
-    
+
     print(f"Tagged Surface Names & Triangles:\n{tsurf_dictionary}")
 
     extra_data = list()
@@ -894,9 +909,9 @@ def load_file(path, texture_scale, model_scale):
         print(f"Extra data value {i+1}: Texture {i+1} applies to {value} gl commands...")
 
     triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
-    
-    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, texture_scale)
-    
+
+    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, ImportOptions.texture_scale)
+
     for i_frame in range(len(frames)):
         for i_vert in range((header.num_xyz)):
             frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0] * frames[i_frame].scale.x + frames[i_frame].translate.x
@@ -911,7 +926,7 @@ def load_file(path, texture_scale, model_scale):
     return model
 
 
-def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
+def blender_load_md2():
     """
     This function uses the information from a md2 dataclass into a blender object.
     This will consist of an animated mesh and its material (which is not much more than the texture.
@@ -924,24 +939,16 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
         - Create shape animation (Add keyframe to each vertex)
         - Assign skin to mesh
     """
-    ModelVars.x_rotate = x_rotate
-    ModelVars.y_rotate = y_rotate
-    ModelVars.z_rotate = z_rotate
-    ModelVars.apply_transforms = apply_transforms
-    ModelVars.recalc_normals = recalc_normals
-    ModelVars.md2_path = md2_path
-
-
-    startProgress("Loading MD2...")
+    print("Loading MD2...")
 
     # If .md2 is missing print an error on screen. This tends to happen if you select an .md2 to load then select another directory path and then select import.
-    if not os.path.isfile(md2_path):
+    if not os.path.isfile(ImportOptions.filepath):
         bpy.context.window_manager.popup_menu(missing_file, title="Error", icon='ERROR')
-        endProgress()
-        return {'FINISHED'} 
+        # endProgress()
+        return
 
     # First lets clean up our scene
-    if use_clean_scene:
+    if ImportOptions.use_clean_scene:
         for block in bpy.data.meshes:
             if block.users == 0:
                 bpy.data.meshes.remove(block)
@@ -964,51 +971,46 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
 
 
     """ Create MD2 dataclass object """
-    print(f"md2_path: {md2_path}")
-    ModelVars.model_path = '\\'.join(md2_path.split('\\')[0:-1])+"\\"
+    print(f"md2_path: {ImportOptions.filepath}")
+    ModelVars.model_path = '\\'.join(ImportOptions.filepath.split('\\')[0:-1])+"\\"
     print(f"Model Path: {ModelVars.model_path}")
-    model_filename = "\\".join(md2_path.split("\\")[-1:])
+    model_filename = "\\".join(ImportOptions.filepath.split("\\")[-1:])
     print(f"Model Filename: {model_filename}")
 
     # A dataclass containing all information stored in a .md2 file
-    ModelVars.my_object = load_file(md2_path, texture_scale, model_scale)
+    ModelVars.my_object = load_file()
 
-    """ Create skin path. By default, the one stored inside of the MD2 is used. Some engines like the Digital Paintball 2 one
-    check for any image file with that path disregarding the file extension.
-    """
-    """ get the skin path stored inside of the MD2 """
-    # check box must be checked (alternatively it could be checked if the input field was empty or not ...)
-
-
-
-    """ Loads required information for mesh generation and UV mapping from the .md2 file"""
     # Gets name to give to the object and mesh in the outliner
-    if not displayed_name:
+    if not ImportOptions.displayed_name:
         # Added support for autoloading textures and to name mesh the same as filename if a Display Name is not entered on import screen - Creaper
-        # object_name_test = "/".join(object_path.split("/")[-2:]).split(".")[:-1]
-        ModelVars.object_name = os.path.basename(md2_path).split('/')[-1]
+        ModelVars.object_name = os.path.basename(ImportOptions.filepath).split('/')[-1]
         ModelVars.object_name = os.path.splitext(ModelVars.object_name)[0] # remove extension (last one)
         print(f"Blender Outliner Object Name: {ModelVars.object_name}")
         ModelVars.mesh = bpy.data.meshes.new(ModelVars.object_name)  # add the new mesh via filename
     else:
-        ModelVars.object_name = [displayed_name]
-        print(f"Blender Outliner Object Name: {displayed_name}")
+        ModelVars.object_name = [ImportOptions.displayed_name]
+        print(f"Blender Outliner Object Name: {ImportOptions.displayed_name}")
         ModelVars.mesh = bpy.data.meshes.new(*ModelVars.object_name)  # add the new mesh, * extracts string from Display Name input list
-
 
     # List of vertices [x,y,z] for all frames extracted from the md2 object
     ModelVars.all_verts
     ModelVars.all_verts = [[x.v for x in ModelVars.my_object.frames[y].verts] for y in range(ModelVars.my_object.header.num_frames)]
+
+
+def create_mesh_md2():
+    print("Creating mesh...")
+
     # List of vertex indices forming a triangular face
     tris = ([x.vertexIndices for x in ModelVars.my_object.triangles])
-    # uv coordinates (in Quake II/OpenGL terms st coordinates) for projecting the skin on the model's faces
-    # blender flips images upside down when loading so v = 1-t for blender imported images
-    uvs_others = ([(x.s, 1-x.t) for x in ModelVars.my_object.texture_coordinates]) 
-    # blender uv coordinate system originates at lower left
 
-    """ Lots of code (copy and pasted) that creates a mesh and adds it to the scene collection/outlines """
+    # uv coordinates (in Quake II/OpenGL terms st coordinates) for projecting the skin on the model's faces
+    # blender uv coordinate system originates at lower left,
+    # blender flips images upside down when loading so v = 1-t for blender imported images
+    uvs_others = ([(x.s, 1-x.t) for x in ModelVars.my_object.texture_coordinates])
+
     ModelVars.obj = bpy.data.objects.new(ModelVars.mesh.name, ModelVars.mesh)
-    # col = bpy.data.collections.get("Collection")
+
+    # col = bpy.data.collections.get("Collection")  # To specify a specific collection
     col = bpy.data.collections[0]
     col.objects.link(ModelVars.obj)
     bpy.context.view_layer.objects.active = ModelVars.obj
@@ -1042,12 +1044,9 @@ def blender_load_md2(md2_path, displayed_name, model_scale, texture_scale, x_rot
     ModelVars.current_anim_name = ""
     frame_count = len(ModelVars.my_object.frames)
 
-    # bpy.ops.wm.create_frames('INVOKE_DEFAULT')
+    bpy.ops.wm.import_animation_frames('EXEC_DEFAULT')
+    bpy.ops.wm.import_materials('EXEC_DEFAULT')
 
-    bpy.ops.amd2_import.macro()
-
-    endProgress()
-    return {'FINISHED'} # no idea, seems to be necessary for the UI
 
 
 

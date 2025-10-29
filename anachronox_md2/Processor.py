@@ -21,15 +21,6 @@ def insert_keyframe(fcurves, frame, values):
         fcu.keyframe_points.insert(frame, val, options={'FAST'})
 
 
-class QueueRunner(bpy.types.Macro):
-    """
-    This macro will fire the operators in this file off in order to keep from locking things up.
-    (The frames take a bit of time to process)
-    """
-    bl_idname = "amd2_import.macro"
-    bl_label = "Anachronox MD2 Import Macro"
-
-
 class ImportAnimationFrames(bpy.types.Operator):
     bl_idname = "wm.import_animation_frames"
     bl_label = "Import Animation Frames"
@@ -77,8 +68,8 @@ class ImportAnimationFrames(bpy.types.Operator):
                 fcu.keyframe_points.insert(frame, co[i], options={'FAST'})
 
         for frame_index, frame in enumerate(frames):
-            if (frame_index % 10 == 0):
-                showProgress(frame_index, frame_count)
+            # if (frame_index % 10 == 0):
+                # showProgress(frame_index, frame_count)
 
             global_frame = frame_index * 2
             anim_name = frame.name[: findnth(frame.name, '_', 2)]
@@ -179,14 +170,12 @@ class ImportAnimationFrames(bpy.types.Operator):
         for i, t in enumerate(created_tracks):
             t.mute = (i != 0)
 
-
         # Find an area/region of type 'NLA' to provide context for the operator
         nla_area = None
         for area in bpy.context.window.screen.areas:
             if area.type == 'NLA':
                 nla_area = area
                 break
-
 
         # restore mode
         if orig_mode and bpy.context.object and bpy.context.object.mode != orig_mode:
@@ -201,8 +190,7 @@ class ImportAnimationFrames(bpy.types.Operator):
             bpy.context.scene.frame_start = 0
             bpy.context.scene.frame_end = max_len
 
-        print("Imported animations (mesh NLA tracks):", [t.name for t in created_tracks])
-        showProgress(frame_count, frame_count, "Import complete.")
+        # showProgress(frame_count, frame_count, "Import complete.")
         return {'FINISHED'}
 
 
@@ -238,7 +226,7 @@ class ImportMaterials(bpy.types.Operator):
             # Give an error and assign a purple color if all textures are missing
             if(ModelVars.my_object.texture_paths == []):
                 # Give and error and assign a purple color if one texture is missing
-                print(f"Cannot find textures for {ModelVars.md2_path}!")
+                print(f"Cannot find textures for {ImportOptions.md2_path}!")
                 print(f"Check {ModelVars.model_path} for .mda material texture file.")
                 bsdf.inputs['Base Color'].default_value = (1,0,1,1)
 
@@ -315,16 +303,16 @@ class ImportMaterials(bpy.types.Operator):
         # Any rotation needs to be applied to all frames
         # for frame_index, frame in enumerate(ModelVars.my_object.frames):
         #     bpy.context.scene.frame_set(frame_index)
-        #     bpy.context.active_object.rotation_euler[0] = math.radians(ModelVars.x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-        #     bpy.context.active_object.rotation_euler[1] = math.radians(ModelVars.y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
-        #     bpy.context.active_object.rotation_euler[2] = math.radians(ModelVars.z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+        #     bpy.context.active_object.rotation_euler[0] = math.radians(ImportOptions.x_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+        #     bpy.context.active_object.rotation_euler[1] = math.radians(ImportOptions.y_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
+        #     bpy.context.active_object.rotation_euler[2] = math.radians(ImportOptions.z_rotate) # rotate on import axis=(1=X 2=Y, 3=Z) degrees=(amount)
 
         # Reset
         bpy.context.scene.frame_set(0)
         print("Object rotated per selected parameters...")
 
         # Apply Transforms if option selected on import screen
-        if(ModelVars.apply_transforms):
+        if(ImportOptions.apply_transforms):
             print("Applying transforms...")
             context = bpy.context
             ob = context.object
@@ -337,7 +325,7 @@ class ImportMaterials(bpy.types.Operator):
             ob.matrix_basis.identity()     
 
         # Apply flip if option is selected on import screen
-        if(ModelVars.recalc_normals):
+        if(ImportOptions.recalc_normals):
             print("Recalculating normals...")
             # go edit mode
             bpy.ops.object.mode_set(mode='EDIT')

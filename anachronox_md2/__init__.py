@@ -15,7 +15,7 @@ bl_info = {
 
 """
 This part is required for the UI, to make the Addon appear under File > Import once it's
-activated and to have additional input fields in the file picking menu  
+activated and to have additional input fields in the file picking menu
 Code is taken from Templates > Python > Operator File Import in Text Editor
 The code here calls blender_load_md2
 """
@@ -24,22 +24,14 @@ The code here calls blender_load_md2
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import BoolProperty, StringProperty
 import bpy
-from .anachronox_md2_import import blender_load_md2
-from .Processor import ImportAnimationFrames, ImportMaterials, QueueRunner
-
-
-#----------------------------------------------------------
-#   Register
-#----------------------------------------------------------
+from .anachronox_md2_import import load_import_variables, blender_load_md2, create_mesh_md2
+from .Processor import ImportAnimationFrames, ImportMaterials
 
 
 
-class ImportSomeData(bpy.types.Operator, ImportHelper):
-    """Loads a Quake 2 MD2 File"""
-
-    # Added a bunch of nifty import options so you do not have to do the same tasks 1000+ times when converting models to another engine. -  Creaper
-
-    bl_idname = "import_md2.some_data"  # important since its how bpy.ops.import_test.some_data is constructed
+class ImportMD2(bpy.types.Operator, ImportHelper):
+    """Loads a Quake 2 (Anachronox) MD2 File"""
+    bl_idname = "import_md2.file"
     bl_label = "Import MD2"
 
     ## ImportHelper mixin class uses this
@@ -51,6 +43,7 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
         maxlen=255,  # Max internal buffer length, longer would be clamped.
     )
 
+    # Added a bunch of nifty import options so you do not have to do the same tasks 1000+ times when converting models to another engine. -  Creaper
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
     displayed_name: bpy.props.StringProperty(name="Outliner name",
@@ -98,21 +91,24 @@ class ImportSomeData(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         try:
-            return blender_load_md2(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
+            load_import_variables(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
+            blender_load_md2()
+            create_mesh_md2()
+
+            return {'FINISHED'}
         except Exception as argument:
             self.report({'ERROR'}, str(argument))
-
+            return {'FINISHED'}
 
 
 def menu_func_import(self, context):
-    self.layout.operator(ImportSomeData.bl_idname, text="Anachronox Model Import (.md2)")
+    self.layout.operator(ImportMD2.bl_idname, text="Anachronox Model Import (.md2)")
 
 
 classes = [
     ImportAnimationFrames,
     ImportMaterials,
-    QueueRunner,
-    ImportSomeData
+    ImportMD2
 ]
 
 
@@ -122,10 +118,6 @@ def register():
     for cls in classes:
         # print(f'Registering: {cls}')
         bpy.utils.register_class(cls)
-
-    # This adds the Operators that will run when the macro is called according to bl_idname - Processor.py file
-    QueueRunner.define("WM_OT_import_animation_frames")
-    QueueRunner.define("WM_OT_import_materials")
 
 
 # called when addon is deactivated (removed script from menu)

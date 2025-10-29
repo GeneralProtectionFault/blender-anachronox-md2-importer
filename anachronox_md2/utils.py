@@ -14,30 +14,43 @@ class ModelVars(object):
     md2_path = ""
     model_path = ""
     mesh = {}
-    x_rotate = 0
-    y_rotate = 0
-    z_rotate = 0
-    apply_transforms = True
-    recalc_normals = False
+    # x_rotate = 0
+    # y_rotate = 0
+    # z_rotate = 0
+    # apply_transforms = True
+    # recalc_normals = False
     object_name = ""
 
 
-def startProgress(string):
-    print(string)
-    wm = bpy.context.window_manager
-    wm.progress_begin(0, 100)
+class ImportOptions(object):
+    filepath = ""
+    displayed_name = ""
+    model_scale = 1.0
+    texture_scale = 1.0
+    x_rotate = 0.0
+    y_rotate = 0.0
+    z_rotate = 0.0
+    apply_transforms = True
+    recalc_normals = True
+    use_clean_scene = True
 
-def endProgress():
-    wm = bpy.context.window_manager
-    wm.progress_update(100)
-    wm.progress_end()
 
-def showProgress(n, total, string=None):
-    pct = (100.0*n)/total
-    wm = bpy.context.window_manager
-    wm.progress_update(int(pct))
-    if string:
-        print(string)
+# def startProgress(string):
+#     print(string)
+#     wm = bpy.context.window_manager
+#     wm.progress_begin(0, 100)
+
+# def endProgress():
+#     wm = bpy.context.window_manager
+#     wm.progress_update(100)
+#     wm.progress_end()
+
+# def showProgress(n, total, string=None):
+#     pct = (100.0*n)/total
+#     wm = bpy.context.window_manager
+#     wm.progress_update(int(pct))
+#     if string:
+#         print(string)
 
 
 def findnth(string, substring, n):
