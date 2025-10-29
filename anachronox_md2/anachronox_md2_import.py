@@ -395,12 +395,12 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
             try:
                 with PIL.Image.open(candidate_path) as img:
                     # Resolution from actual image
-                    print(f"Texture found: {candidate_path} {img.size}")
+                    print(f"✅ Texture found: {candidate_path} {img.size}")
                     return candidate_path, img.size
             except PIL.UnidentifiedImageError:
-                print(f"Warning: File {candidate_path} found but is not a recognized image or is corrupted.")
+                print(f"⛔ Warning: File {candidate_path} found but is not a recognized image or is corrupted.")
             except Exception as e: # pylint: disable=broad-except
-                print(f"Warning: Error opening image {candidate_path}: {e}")
+                print(f"⛔ Warning: Error opening image {candidate_path}: {e}")
     return None, None
 
 
@@ -415,17 +415,19 @@ def load_texture_paths_and_skin_resolutions(skin_names):
     model_filename_stem = model_file_path_obj.stem
 
     for skin_index, skin_name_raw in enumerate(skin_names):
-        print(f'Path to file: {model_file_path_obj}')
+        print(f"Getting textures for skin {skin_index} : {skin_name_raw}")
+        print(f'ℹ️ Path to file: {model_file_path_obj}')
 
         # This variable mirrors 'model_path' from original, which changes based on MDA/ATD
         current_texture_search_base_str = str(initial_model_dir)
-        print(f'Folder: {current_texture_search_base_str}')
+        print(f'ℹ️ Folder: {current_texture_search_base_str}')
 
         embedded_texture_name = skin_name_raw.rstrip("\x00")
         # remove extension (last one)
         embedded_texture_name_stem = Path(embedded_texture_name).stem
-        print(f"Embedded Texture Name {embedded_texture_name}")
+        print(f"ℹ️ Embedded Texture Name {embedded_texture_name}")
 
+        print('----------------------------------------------------------------------------------------------------------------')
         found_texture_file_path = None
         found_texture_resolution = None
 
@@ -435,7 +437,7 @@ def load_texture_paths_and_skin_resolutions(skin_names):
         # Path in .md2 directory
         # Added support for autoloading textures from .md2 directory
         texture_base_candidate1 = initial_model_dir / embedded_texture_name_stem
-        print(f'Texture Path: {texture_base_candidate1}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+        print(f'ℹ️ Texture Path: {texture_base_candidate1} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
         found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
             texture_base_candidate1, SUPPORTED_IMAGE_FORMATS
         )
@@ -444,14 +446,15 @@ def load_texture_paths_and_skin_resolutions(skin_names):
             # Path in subdirectory with the same name as the embedded texture
             # Added support for autoloading textures from a subdirectory with the same name as the embedded texture
             texture_base_candidate2 = initial_model_dir / embedded_texture_name_stem / embedded_texture_name_stem
-            print(f'Subtexture Path: {texture_base_candidate2}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+            print(f'ℹ️ Subtexture Path: {texture_base_candidate2}({",".join(SUPPORTED_IMAGE_FORMATS)})')
             found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
                 texture_base_candidate2, SUPPORTED_IMAGE_FORMATS
             )
+        print('----------------------------------------------------------------------------------------------------------------')
 
         # if a texture is not located insert a blank texture name into array ... and assign a bum resolution
         if not found_texture_file_path:
-            skin_resolutions[skin_index] = (64, 64) 
+            skin_resolutions[skin_index] = (64, 64)
             texture_paths[skin_index] = ""
         else:
             texture_paths[skin_index] = str(found_texture_file_path)
@@ -460,7 +463,7 @@ def load_texture_paths_and_skin_resolutions(skin_names):
 
         # --- MDA Fallback ---
         if texture_paths[skin_index] == "":
-            print("Unable to locate texture, trying to find associated MDA file...")
+            print("❌ Unable to locate texture, trying to find associated MDA file...")
 
             # Look for MDA in current folder
             mda_path = initial_model_dir / (model_filename_stem + ".mda")
@@ -468,30 +471,45 @@ def load_texture_paths_and_skin_resolutions(skin_names):
                 # Look for MDA in parent folder
                 mda_path = initial_model_dir.parent / (model_filename_stem + ".mda")
 
+            # MDA is not ALWAYS named the same as the model file X-[...
+            # This will check for the MDA matching the FOLDER that corresponds to the character name.
+            # Example is rictus, which has rictus.mda, but the model is named kraptonguy.  krap...
+            if not mda_path.is_file():
+                character_folder = initial_model_dir.parent     # Hopefully...folder that contains the model, skin, etc...
+                mda_path = character_folder / Path(character_folder.name + ".mda")
+
             if mda_path.is_file():
-                print(f"Found MDA: {mda_path}")
+                print(f"✅ Found MDA: {mda_path}")
                 grouped_maps = parse_material_file(str(mda_path))
 
                 mda_texture_rel_path_str = None
                 if grouped_maps:
                     map_key_to_use = "DFLT" if "DFLT" in grouped_maps else next(iter(grouped_maps), None)
+                    print(f"GROUPED MAPS: {grouped_maps}")
+                    print(f"MAP KEY TO USE: {map_key_to_use}")
+
                     if map_key_to_use and map_key_to_use in grouped_maps:
                         texture_list_for_key = grouped_maps[map_key_to_use]
+                        print(f"LENGTH OF texture_list_for_key: {len(texture_list_for_key)}")
+                        print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
+                        print(f"SKIN INDEX: {skin_index}")
                         if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
                             mda_texture_rel_path_str = texture_list_for_key[skin_index]
                         else:
-                            print(f"Warning: Skin index {skin_index} out of bounds or invalid format for key '{map_key_to_use}' in MDA maps.")
+                            mda_texture_rel_path_str = texture_list_for_key[0]
+                            print(f"⛔ Warning: Skin index {skin_index} out of bounds or invalid format for key '{map_key_to_use}' in MDA maps.")
+                            print("⛔ Using first texture anyway (Models like Rictus refer to the same texture twice) ⛔")
                     else:
-                        print("Warning: No suitable key ('DFLT' or first key) found in MDA maps or map is empty.")
+                        print("⛔ Warning: No suitable key ('DFLT' or first key) found in MDA maps or map is empty.")
                 else:
-                    print("Warning: MDA file parsed to empty grouped_maps.")
+                    print("⛔ Warning: MDA file parsed to empty grouped_maps.")
 
                 if mda_texture_rel_path_str:
                     current_texture_search_base_str = merge_paths(str(initial_model_dir), mda_texture_rel_path_str)
-                    print(f"Path after MDA merge: {current_texture_search_base_str}")
+                    print(f"ℹ️ Path after MDA merge: {current_texture_search_base_str}")
 
                     mda_derived_tex_base = Path(current_texture_search_base_str)
-                    print(f'Texture Path (from MDA): {mda_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+                    print(f'ℹ️ Texture Path (from MDA): {mda_derived_tex_base} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
                     found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
                         mda_derived_tex_base, SUPPORTED_IMAGE_FORMATS
                     )
@@ -499,25 +517,27 @@ def load_texture_paths_and_skin_resolutions(skin_names):
                         texture_paths[skin_index] = str(found_texture_file_path)
                         skin_resolutions[skin_index] = found_texture_resolution
             else:
-                print(f"No MDA file found for {model_filename_stem} in {initial_model_dir} or {initial_model_dir.parent}")
+                print(f"❌ No MDA file found for {model_filename_stem} in {initial_model_dir} or {initial_model_dir.parent}")
+
+
 
 
         # --- ATD Fallback ---
         if texture_paths[skin_index] == "":
-            print("Unable to locate texture after MDA (or MDA not found/used), trying ATD...")
+            print("❌ Unable to locate texture after MDA (or MDA not found/used), trying ATD...")
             atd_file_candidate = Path(current_texture_search_base_str).with_suffix(".atd")
-            print(f'ATD file lookup: {atd_file_candidate}')
+            print(f'ℹ️ ATD file lookup: {atd_file_candidate}')
 
             if atd_file_candidate.is_file():
-                print(f"Found ATD: {atd_file_candidate}")
+                print(f"✅ Found ATD: {atd_file_candidate}")
                 res_from_atd = extract_file_value(str(atd_file_candidate))
                 if res_from_atd:
-                    print(f"ATD extraction result: {res_from_atd}")
+                    print(f"ℹ️ ATD extraction result: {res_from_atd}")
                     current_texture_search_base_str = merge_paths(current_texture_search_base_str, res_from_atd)
-                    print(f"Path after ATD merge: {current_texture_search_base_str}")
+                    print(f"ℹ️ Path after ATD merge: {current_texture_search_base_str}")
 
                     atd_derived_tex_base = Path(current_texture_search_base_str)
-                    print(f'Texture Path (from ATD): {atd_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+                    print(f'ℹ️ Texture Path (from ATD): {atd_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
                     found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
                         atd_derived_tex_base, SUPPORTED_IMAGE_FORMATS
                     )
@@ -525,13 +545,13 @@ def load_texture_paths_and_skin_resolutions(skin_names):
                         texture_paths[skin_index] = str(found_texture_file_path)
                         skin_resolutions[skin_index] = found_texture_resolution
                 else:
-                    print(f"ATD file {atd_file_candidate} did not yield a value.")
+                    print(f"❌ ATD file {atd_file_candidate} did not yield a value.")
             else:
-                print(f"ATD file {atd_file_candidate} not found.")
+                print(f"❌ ATD file {atd_file_candidate} not found.")
 
         # Final check if texture was found for this skin_index
         if texture_paths[skin_index] == "":
-            print(f"Unable to locate texture for '{current_texture_search_base_str}/{embedded_texture_name}'!")
+            print(f"❌ Unable to locate texture for '{current_texture_search_base_str}/{embedded_texture_name}'!")
             # Ensure defaults are set if all attempts failed
             skin_resolutions[skin_index] = (64, 64) 
             texture_paths[skin_index] = ""
