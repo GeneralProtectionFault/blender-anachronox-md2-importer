@@ -1044,7 +1044,10 @@ def create_mesh_md2():
     ModelVars.current_anim_name = ""
     frame_count = len(ModelVars.my_object.frames)
 
-    bpy.ops.wm.import_animation_frames('EXEC_DEFAULT')
+    bpy.ops.wm.import_animation_frames_modal('INVOKE_DEFAULT')
+    # bpy.ops.wm.import_animation_frames('EXEC_DEFAULT')
+
+
     bpy.ops.wm.import_materials('EXEC_DEFAULT')
 
 

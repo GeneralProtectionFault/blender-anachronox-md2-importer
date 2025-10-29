@@ -25,8 +25,15 @@ from bpy_extras.io_utils import ImportHelper
 from bpy.props import BoolProperty, StringProperty
 import bpy
 from .anachronox_md2_import import load_import_variables, blender_load_md2, create_mesh_md2
-from .Processor import ImportAnimationFrames, ImportMaterials
+from .Processor import IMPORT_OT_animation_frames_modal, ImportMaterials
 
+
+
+def draw_progress(self, context):
+    wm = context.window_manager
+    percent = int(wm.progress * 100)
+    layout = self.layout
+    layout.progress(factor=wm.progress, type='BAR', text=f"{wm.progress_message} {percent}%")
 
 
 class ImportMD2(bpy.types.Operator, ImportHelper):
@@ -106,13 +113,17 @@ def menu_func_import(self, context):
 
 
 classes = [
-    ImportAnimationFrames,
+    IMPORT_OT_animation_frames_modal,
     ImportMaterials,
     ImportMD2
 ]
 
 
 def register():
+    bpy.types.WindowManager.progress = bpy.props.FloatProperty(default=0.0)
+    bpy.types.WindowManager.progress_message = bpy.props.StringProperty(default="")
+
+    bpy.types.STATUSBAR_HT_header.append(draw_progress)  # Shown in status bar
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
     for cls in classes:
@@ -122,6 +133,10 @@ def register():
 
 # called when addon is deactivated (removed script from menu)
 def unregister():
+    del bpy.types.WindowManager.progress
+    del bpy.types.WindowManager.progress_message
+
+    bpy.types.STATUSBAR_HT_header.remove(draw_progress)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
     for cls in reversed(classes):

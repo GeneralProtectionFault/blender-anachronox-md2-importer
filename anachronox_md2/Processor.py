@@ -21,177 +21,214 @@ def insert_keyframe(fcurves, frame, values):
         fcu.keyframe_points.insert(frame, val, options={'FAST'})
 
 
-class ImportAnimationFrames(bpy.types.Operator):
-    bl_idname = "wm.import_animation_frames"
-    bl_label = "Import Animation Frames"
+
+class IMPORT_OT_animation_frames_modal(bpy.types.Operator):
+    bl_idname = "wm.import_animation_frames_modal"
+    bl_label = "Import Animation Frames (Modal)"
+    bl_options = {'REGISTER', 'UNDO'}  # UNDO kept optional; modal + long ops normally don't support automatic undo fully
+
+    # internal state (not properties)
+    _timer = None
+    _frames = None
+    _frame_count = 0
+    _frame_index = 0
+    _obj = None
+    _mesh = None
+    _orig_mode = None
+
+    # current action/chunk state
+    _current_action = None
+    _current_chunk_start_global = None
+    _current_chunk_length = 0
+    _created_tracks = None
+
+    def _ensure_fcurve(self, action, data_path, index):
+        fcu = action.fcurves.find(data_path, index=index)
+        if fcu is None:
+            fcu = action.fcurves.new(data_path=data_path, index=index)
+        return fcu
+
+    def _insert_vertex_into_action(self, action, vert_index, co, frame):
+        data_path = f"vertices[{vert_index}].co"
+        for i in range(3):
+            fcu = self._ensure_fcurve(action, data_path, i)
+            fcu.keyframe_points.insert(frame, co[i], options={'FAST'})
+
+    def _finalize_current_action(self):
+        mesh = self._mesh
+        if self._current_action is None:
+            return
+        for fcu in self._current_action.fcurves:
+            if not fcu.keyframe_points:
+                continue
+            min_x = min(kp.co.x for kp in fcu.keyframe_points)
+            if min_x != 0.0:
+                for kp in fcu.keyframe_points:
+                    kp.co.x -= min_x
+                fcu.update()
+        # clear mesh active action so mesh NLA is authoritative
+        mesh.animation_data.action = None
+        ad = mesh.animation_data
+        track = ad.nla_tracks.new()
+        track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
+        strip = track.strips.new(name=self._current_action.name, start=int(0), action=self._current_action)
+        strip.action_frame_start = 0
+        strip.action_frame_end = int(self._current_chunk_length)
+        strip.frame_end = int(self._current_chunk_length)
+        self._created_tracks.append(track)
+        for t in ad.nla_tracks:
+            t.mute = True
+        track.mute = False
 
     def execute(self, context):
-        self.finished = False
-
         frames = ModelVars.my_object.frames
         frame_count = len(frames)
         if frame_count == 0:
+            self.report({'WARNING'}, "No frames to import")
             return {'CANCELLED'}
 
-        obj = ModelVars.obj
-        mesh = obj.data
+        self._frames = frames
+        self._frame_count = frame_count
+        self._frame_index = 0
+        self._obj = ModelVars.obj
+        self._mesh = self._obj.data
+        self._orig_mode = None
+        if bpy.context.object:
+            self._orig_mode = bpy.context.object.mode
 
-        # Ensure mesh has its own animation container (we will put Actions here)
-        mesh.animation_data_create()
-        # Make sure object.animation_data exists too but keep object.action None so NLA on mesh is authoritative
-        obj.animation_data_create()
-        obj.animation_data.action = None
-
+        # Prepare animation containers
+        self._mesh.animation_data_create()
+        self._obj.animation_data_create()
+        self._obj.animation_data.action = None
         ModelVars.current_anim_name = None
 
-        current_action = None
-        current_chunk_start_global = None
-        current_chunk_length = 0
-        created_tracks = []
+        self._current_action = None
+        self._current_chunk_start_global = None
+        self._current_chunk_length = 0
+        self._created_tracks = []
 
-        print("Looping through frames...")
+        # Start modal timer
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.01, window=context.window)
+        wm.modal_handler_add(self)
 
-        orig_mode = None
-        if bpy.context.object:
-            orig_mode = bpy.context.object.mode
+        # Begin progress
+        context.window_manager.progress = 0.0
+        context.window_manager.progress_message = "Animations:"
 
-        def _ensure_fcurve(action, data_path, index):
-            fcu = action.fcurves.find(data_path, index=index)
-            if fcu is None:
-                fcu = action.fcurves.new(data_path=data_path, index=index)
-            return fcu
+        return {'RUNNING_MODAL'}
 
-        def _insert_vertex_into_action(action, vert_index, co, frame):
-            data_path = f"vertices[{vert_index}].co"    # note: on mesh action, data_path is relative to the Mesh ID
-            for i in range(3):
-                fcu = _ensure_fcurve(action, data_path, i)
-                fcu.keyframe_points.insert(frame, co[i], options={'FAST'})
+    def modal(self, context, event):
+        wm = context.window_manager
 
-        for frame_index, frame in enumerate(frames):
-            # if (frame_index % 10 == 0):
-                # showProgress(frame_index, frame_count)
+        if event.type == 'TIMER':
+            # process a small batch per tick to keep UI responsive
+            batch_size = 5  # adjust for performance; small number keeps UI interactive
+            processed = 0
+            frames = self._frames
 
-            global_frame = frame_index * 2
-            anim_name = frame.name[: findnth(frame.name, '_', 2)]
+            while self._frame_index < self._frame_count and processed < batch_size:
+                frame_index = self._frame_index
+                frame = frames[frame_index]
 
-            if anim_name != ModelVars.current_anim_name:
-                print(f"Processing animation: {anim_name} - Frame #: {frame_index}")
+                global_frame = frame_index * 2
+                anim_name = frame.name[: findnth(frame.name, '_', 2)]
 
-                if not anim_name == '':
-                    # finalize previous action (normalize fcurves and push to mesh NLA)
-                    if current_action is not None:
-                        for fcu in current_action.fcurves:
-                            if not fcu.keyframe_points:
-                                continue
-                            min_x = min(kp.co.x for kp in fcu.keyframe_points)
-                            if min_x != 0.0:
-                                for kp in fcu.keyframe_points:
-                                    kp.co.x -= min_x
-                                fcu.update()
+                if anim_name != ModelVars.current_anim_name:
+                    print(f"Processing animation: {anim_name} - Frame #: {frame_index}")
 
-                        # clear mesh active action so mesh NLA is authoritative
-                        mesh.animation_data.action = None
+                    if not anim_name == '':
+                        # finalize previous action
+                        if self._current_action is not None:
+                            self._finalize_current_action()
 
-                        # create NLA track+strip on mesh.animation_data
-                        ad = mesh.animation_data
-                        track = ad.nla_tracks.new()
-                        track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
-                        strip = track.strips.new(name=current_action.name, start=int(0), action=current_action)
-                        strip.action_frame_start = 0
-                        strip.action_frame_end = int(current_chunk_length)
-                        strip.frame_end = int(current_chunk_length)
-                        created_tracks.append(track)
+                        # create new Action on the mesh datablock and set it active there
+                        act_name = f"{ModelVars.object_name}_{anim_name}"
+                        self._current_action = bpy.data.actions.new(name=act_name)
+                        self._mesh.animation_data.action = self._current_action
+                    else:
+                        self._current_action = None
 
-                        # mute other mesh tracks, unmute this one for clarity
-                        for t in ad.nla_tracks:
-                            t.mute = True
-                        track.mute = False
+                    self._current_chunk_start_global = global_frame
+                    self._current_chunk_length = 0
+                    ModelVars.current_anim_name = anim_name
 
-                    # create new Action on the mesh datablock and set it active there
-                    act_name = f"{ModelVars.object_name}_{anim_name}"
-                    current_action = bpy.data.actions.new(name=act_name)
-                    mesh.animation_data.action = current_action   # assign action to mesh (mesh ID)
+                local_frame = int(global_frame - self._current_chunk_start_global)
 
-                else:
-                    current_action = None
-                    print("SKIPPING BLANK ANIMATION NAME...")
+                if self._current_action is not None:
+                    # fast write vertex coords
+                    self._mesh.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
 
-                # Do this whether it's a blank animation or not
-                current_chunk_start_global = global_frame
-                current_chunk_length = 0
-                ModelVars.current_anim_name = anim_name
+                    # ensure OBJECT mode for safe operations
+                    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+                        bpy.ops.object.mode_set(mode='OBJECT')
 
+                    # insert keyframes into the mesh-level action fcurves
+                    for idx, v in enumerate(self._mesh.vertices):
+                        v.co = ModelVars.all_verts[frame_index][idx]
+                        self._insert_vertex_into_action(self._current_action, idx, v.co, local_frame)
 
-            local_frame = int(global_frame - current_chunk_start_global)
+                self._current_chunk_length = max(self._current_chunk_length, local_frame)
 
-            if current_action is not None:
-                # fast write vertex coords
-                mesh.vertices.foreach_set('co', flatten_extend(ModelVars.all_verts[frame_index]))
+                self._frame_index += 1
+                processed += 1
 
-                # ensure OBJECT mode for safe operations
-                if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-                    bpy.ops.object.mode_set(mode='OBJECT')
+            # update progress
+            context.window_manager.progress = self._frame_index / self._frame_count
+            context.window_manager.progress_message = "Animations:"
 
-                # insert keyframes into the mesh-level action fcurves
-                for idx, v in enumerate(mesh.vertices):
-                    v.co = ModelVars.all_verts[frame_index][idx]
-                    _insert_vertex_into_action(current_action, idx, v.co, local_frame)
+            # Update UI
+            for area in context.screen.areas:
+                area.tag_redraw()
 
-            current_chunk_length = max(current_chunk_length, local_frame)
+            # finished?
+            if self._frame_index >= self._frame_count:
+                # finalize last chunk
+                if self._current_action is not None:
+                    self._finalize_current_action()
 
-        # finalize last chunk
-        if current_action is not None:
-            for fcu in current_action.fcurves:
-                if not fcu.keyframe_points:
-                    continue
-                min_x = min(kp.co.x for kp in fcu.keyframe_points)
-                if min_x != 0.0:
-                    for kp in fcu.keyframe_points:
-                        kp.co.x -= min_x
-                    fcu.update()
+                # unmute only the first track, mute the rest
+                for i, t in enumerate(self._created_tracks):
+                    t.mute = (i != 0)
 
-            mesh.animation_data.action = None
+                # restore mode
+                if self._orig_mode and bpy.context.object and bpy.context.object.mode != self._orig_mode:
+                    bpy.ops.object.mode_set(mode=self._orig_mode)
 
-            ad = mesh.animation_data
-            track = ad.nla_tracks.new()
-            track.name = f"{ModelVars.object_name}_{ModelVars.current_anim_name}_track"
-            strip = track.strips.new(name=current_action.name, start=int(0), action=current_action)
-            strip.action_frame_start = 0
-            strip.action_frame_end = int(current_chunk_length)
-            strip.frame_end = int(current_chunk_length)
-            created_tracks.append(track)
+                # set scene range to longest action length
+                max_len = 0
+                for t in self._created_tracks:
+                    for s in t.strips:
+                        max_len = max(max_len, int(s.frame_end))
+                if max_len > 0:
+                    bpy.context.scene.frame_start = 0
+                    bpy.context.scene.frame_end = max_len
 
-            for t in ad.nla_tracks:
-                t.mute = True
-            track.mute = False
+                # end progress and cleanup
+                context.window_manager.progress = 0.0
+                context.window_manager.progress_message = ""
+                wm.event_timer_remove(self._timer)
+                self._timer = None
 
+                return {'FINISHED'}
 
-        # unmute only the first track, mute the rest
-        for i, t in enumerate(created_tracks):
-            t.mute = (i != 0)
+        # allow user to cancel with ESC
+        if event.type in {'ESC'}:
+            if self._timer:
+                wm.event_timer_remove(self._timer)
+                self._timer = None
 
-        # Find an area/region of type 'NLA' to provide context for the operator
-        nla_area = None
-        for area in bpy.context.window.screen.areas:
-            if area.type == 'NLA':
-                nla_area = area
-                break
+            context.window_manager.progress = 0.0
+            context.window_manager.progress_message = ""
 
-        # restore mode
-        if orig_mode and bpy.context.object and bpy.context.object.mode != orig_mode:
-            bpy.ops.object.mode_set(mode=orig_mode)
+            # Update UI
+            for area in context.screen.areas:
+                area.tag_redraw()
 
-        # set scene range to longest action length
-        max_len = 0
-        for t in created_tracks:
-            for s in t.strips:
-                max_len = max(max_len, int(s.frame_end))
-        if max_len > 0:
-            bpy.context.scene.frame_start = 0
-            bpy.context.scene.frame_end = max_len
+            self.report({'CANCELLED'})
+            return {'CANCELLED'}
 
-        # showProgress(frame_count, frame_count, "Import complete.")
-        return {'FINISHED'}
+        return {'PASS_THROUGH'}
 
 
 
@@ -322,7 +359,7 @@ class ImportMaterials(bpy.types.Operator):
             for c in ob.children:
                 c.matrix_local = mb @ c.matrix_local
 
-            ob.matrix_basis.identity()     
+            ob.matrix_basis.identity()
 
         # Apply flip if option is selected on import screen
         if(ImportOptions.recalc_normals):
@@ -338,6 +375,11 @@ class ImportMaterials(bpy.types.Operator):
             bpy.ops.object.editmode_toggle()
 
         print("YAY NO ERRORS!!")
+
+        # Update UI
+        for area in context.screen.areas:
+            area.tag_redraw()
+
         return {'FINISHED'}
 
 
