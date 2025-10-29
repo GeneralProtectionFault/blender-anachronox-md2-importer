@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List
 import platform
 import re
+from difflib import SequenceMatcher
 from collections import defaultdict
 
 from .utils import ModelVars, ImportOptions, findnth
@@ -464,6 +465,7 @@ def load_texture_paths_and_skin_resolutions(skin_names):
         # --- MDA Fallback ---
         if texture_paths[skin_index] == "":
             print("❌ Unable to locate texture, trying to find associated MDA file...")
+            character_folder = initial_model_dir.parent     # Hopefully...folder that contains the model, skin, etc...
 
             # Look for MDA in current folder
             mda_path = initial_model_dir / (model_filename_stem + ".mda")
@@ -475,8 +477,24 @@ def load_texture_paths_and_skin_resolutions(skin_names):
             # This will check for the MDA matching the FOLDER that corresponds to the character name.
             # Example is rictus, which has rictus.mda, but the model is named kraptonguy.  krap...
             if not mda_path.is_file():
-                character_folder = initial_model_dir.parent     # Hopefully...folder that contains the model, skin, etc...
                 mda_path = character_folder / Path(character_folder.name + ".mda")
+
+            # Account for naming convention break by taking the closest MDA
+            # Example: detta2g_cine.md2 & dettag2_cine.mda (2 & g switched...
+            if not mda_path.is_file():
+                # Get any files ending in .mda in the main character's folder
+                mda_files = [str(f) for f in character_folder.glob("**/*.mda")]
+                print(f"Checking any mda files: {mda_files}\nfor similarity to model file: {model_filename_stem}")
+                best = None
+                best_ratio = -1.0
+                for f in mda_files:
+                    ratio = SequenceMatcher(None, model_filename_stem, Path(f).name).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best = f
+                mda_path = Path(best)
+
+                print(f"MDA file decided on: {mda_path}")
 
             if mda_path.is_file():
                 print(f"✅ Found MDA: {mda_path}")
@@ -485,14 +503,13 @@ def load_texture_paths_and_skin_resolutions(skin_names):
                 mda_texture_rel_path_str = None
                 if grouped_maps:
                     map_key_to_use = "DFLT" if "DFLT" in grouped_maps else next(iter(grouped_maps), None)
-                    print(f"GROUPED MAPS: {grouped_maps}")
-                    print(f"MAP KEY TO USE: {map_key_to_use}")
+                    # print(f"\nGROUPED MAPS: {grouped_maps}")
+                    print(f"MAP KEY TO USE: {map_key_to_use}\n")
 
                     if map_key_to_use and map_key_to_use in grouped_maps:
                         texture_list_for_key = grouped_maps[map_key_to_use]
-                        print(f"LENGTH OF texture_list_for_key: {len(texture_list_for_key)}")
-                        print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
-                        print(f"SKIN INDEX: {skin_index}")
+                        # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
+
                         if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
                             mda_texture_rel_path_str = texture_list_for_key[skin_index]
                         else:
@@ -514,6 +531,7 @@ def load_texture_paths_and_skin_resolutions(skin_names):
                     found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
                         mda_derived_tex_base, SUPPORTED_IMAGE_FORMATS
                     )
+
                     if found_texture_file_path:
                         texture_paths[skin_index] = str(found_texture_file_path)
                         skin_resolutions[skin_index] = found_texture_resolution
@@ -651,7 +669,7 @@ def parse_material_file(file_path):
                             # Some MDAs use forward slashes, some use back slashes :-| :-| :-|...
                             map_value = map_value.replace('\\','/')
 
-                            print(f"MAP VALUE ------------- {map_value}")
+                            # print(f"MAP VALUE ------------- {map_value}")
                             results[current_profile_name].append(map_value)
                             spike = True
 
@@ -750,9 +768,6 @@ def merge_paths(base_path, relative_path):
     Returns:
         str: The resulting merged path (e.g., 'c:\\a\\b\\c\\d\\f').
     """
-    print(type(base_path))
-    print(type(relative_path))
-
 
     # Normalize paths to handle different formats and separators
     base_parts = os.path.normpath(base_path).split(os.sep)
