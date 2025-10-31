@@ -2,7 +2,7 @@
 bl_info = {
     "name": "Anachronox MD2 Model Importer",
     "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "version": (1,1,2),
+    "version": (1,3,0),
     "blender": (3,6,0),
     "location": "File > Import > Anachronox (.md2)",
     "description": "Import Anachronox variant of MD2 (Quake II) models",
@@ -24,8 +24,9 @@ The code here calls blender_load_md2
 from bpy_extras.io_utils import ImportHelper
 from bpy.props import BoolProperty, StringProperty
 import bpy
-from .anachronox_md2_import import load_import_variables, blender_load_md2, create_mesh_md2
+from .anachronox_md2_import import load_import_variables, blender_load_md2, get_texture_paths, create_mesh_md2, assign_texture_paths_by_profile, get_md2_object
 from .Processor import IMPORT_OT_animation_frames_modal, ImportMaterials
+from .utils import ModelVars
 
 
 
@@ -34,6 +35,45 @@ def draw_progress(self, context):
     percent = int(wm.progress * 100)
     layout = self.layout
     layout.progress(factor=wm.progress, type='BAR', text=f"{wm.progress_message} {percent}%")
+
+
+# This function builds enum items at runtime.
+def get_dynamic_items(self, context):
+    # Example runtime source; replace with your real dynamic list
+    source = dict(sorted(ModelVars.grouped_maps.items()))
+    items = []
+    for i, name in enumerate(source):
+        # (identifier, name, description, icon, number)
+        items.append((name.upper(), name.capitalize(), f"Choose {name}", "DOT", i))
+    return items
+
+
+class WM_OT_select_profile(bpy.types.Operator):
+    """
+    Pop-up dialogue to allow the user to select which profile to use when there are multiple
+    from an MDA/ATD file.
+    """
+    bl_idname = "wm.select_profile"
+    bl_label = "Multiple profiles available for this model.  Choose:"
+
+    choice: bpy.props.EnumProperty(items=get_dynamic_items)
+
+    def invoke(self, context, event):
+        # Store the original mouse position
+        self.first_mouse_x = event.mouse_x
+        self.first_mouse_y = event.mouse_y
+
+        # Warp the cursor to the center of the window - Otherwise dumbshit Blender spawns the pop-up wherever...
+        context.window.cursor_warp(context.window.width // 2, context.window.height // 2)
+        return context.window_manager.invoke_props_dialog(self, width=600)
+
+    def execute(self, context):
+        assign_texture_paths_by_profile(self.choice)
+        get_md2_object()
+        create_mesh_md2()
+        return {'FINISHED'}
+
+
 
 
 class ImportMD2(bpy.types.Operator, ImportHelper):
@@ -100,7 +140,13 @@ class ImportMD2(bpy.types.Operator, ImportHelper):
         try:
             load_import_variables(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
             blender_load_md2()
-            create_mesh_md2()
+            get_texture_paths()
+
+            if ModelVars.multiple_profiles:
+                bpy.ops.wm.select_profile('INVOKE_DEFAULT')
+            else:
+                get_md2_object()
+                create_mesh_md2()
 
             return {'FINISHED'}
         except Exception as argument:
@@ -115,7 +161,8 @@ def menu_func_import(self, context):
 classes = [
     IMPORT_OT_animation_frames_modal,
     ImportMaterials,
-    ImportMD2
+    ImportMD2,
+    WM_OT_select_profile
 ]
 
 

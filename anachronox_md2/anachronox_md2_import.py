@@ -12,7 +12,7 @@ import re
 from difflib import SequenceMatcher
 from collections import defaultdict
 
-from .utils import ModelVars, ImportOptions, findnth
+from .utils import *
 
 from importlib import reload # required when a self-written module is imported that's edited simultaneously
 import math # for applying optional rotate on import
@@ -68,131 +68,6 @@ import PIL
 from PIL import Image, ImagePath
 
 
-"""
-This part is used to load an md2 file into a MD2 dataclass object
-"""
-""" 
-Dataclasses resembling structs in C. Used for storing MD2 information, being nested and forming one big dataclass
-"""
-
-@dataclass
-class vec3_t:
-    x: float
-    y: float
-    z: float
-
-
-@dataclass
-class vertex_t:  # 4 bytes in total
-    v: list  # unsigned char (in python 1 byte int), list of len 3, compressed vertex
-    lightnormalindex: int  # unsigned char, index to a normal vector for the lighting
-
-@dataclass
-class vertex_indexed: # Store the vertex order for matching to triangle data
-    index: int
-    v: list
-
-
-@dataclass
-class frame_t:  # 40 + num_xyz*4 bytes
-    scale: vec3_t  # scale values, 3 elements
-    translate: vec3_t  # translation vector, 3 elements
-    name: str  # frame name, 16 characters aka bytes at most
-    verts: List[vertex_t]  # list of num_xyz vertex_t's
-
-
-@dataclass
-class md2_t:
-    ident: int                          # magic number. must be equal to "IDP2" or 844121161 as int
-    version: int                        # md2 version. must be equal to 15
-    resolution: int                     # Vertex resolution flag 0=3, 1=4, 2=6
-
-    skinwidth: int                      # width of the texture
-    skinheight: int                     # height of the texture
-    framesize: int                      # size of one frame in bytes
-
-    num_skins: int                      # number of textures
-    num_xyz: int                        # number of vertices
-    num_st: int                         # number of texture coordinates
-    num_tris: int                       # number of triangles
-    num_glcmds: int                     # number of opengl commands
-    num_frames: int                     # total number of frames
-
-    ofs_skins: int                      # offset to skin names (64 bytes each)
-    ofs_st: int                         # offset to s-t texture coordinates
-    ofs_tris: int                       # offset to triangles
-    ofs_frames: int                     # offset to frame data
-    ofs_glcmds: int                     # offset to opengl commands
-    ofs_end: int                        # offset to end of file
-
-    texture_count: int                  # number of different textures the model uses
-    ofs_glcmd_counts: int               # offset to the counts of # of gl commands for each texture
-    num_LODdata1: int                   # Float LOD data 1
-    num_LODdata2: int                   # Float LOD data 2
-    num_LODdata3: int                   # Float LOD data 3
-    num_tsurf: int                      # number of Tagged Surfaces
-    ofs_tsurf: int                      # offset to Tagged surfaces 
-
-
-
-@dataclass
-class triangle_t:  # 12 bytes each
-    vertexIndices: List[int]  # short, 3 values
-    textureIndices: List[int]  # short, 3 values
-
-
-@dataclass
-class textureCoordinate_t: # 4 bytes each
-    s: int  # short
-    t: int  # short
-
-
-@dataclass
-class glCommandVertex_t:
-    s: float
-    t: float
-    vertexIndex: int
-
-
-@dataclass
-class glCommand_t:
-    mode: str  # string saying GL_TRIANGLE_STRIP or GL_TRIANGLE_FAN
-    vertices: List[glCommandVertex_t]  # all vertices rendered with said mode
-
-
-@dataclass
-class md2_object:
-    header: md2_t
-    skin_names: List[str]
-    triangles: List[triangle_t]
-    frames: List[frame_t]
-    texture_coordinates: List[textureCoordinate_t]
-    gl_commands: List[glCommand_t]
-    tagged_surfaces: dict()
-    vertices: List[vertex_indexed]
-    triangle_skin_dict: dict()
-    extra_data: dict()
-    texture_paths: list()
-
-
-def load_import_variables(filepath, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
-    ImportOptions.filepath = filepath
-    ImportOptions.displayed_name = displayed_name
-    ImportOptions.model_scale = model_scale
-    ImportOptions.texture_scale = texture_scale
-    ImportOptions.x_rotate = x_rotate
-    ImportOptions.y_rotate = y_rotate
-    ImportOptions.z_rotate = z_rotate
-    ImportOptions.apply_transforms = apply_transforms
-    ImportOptions.recalc_normals = recalc_normals
-    ImportOptions.use_clean_scene = use_clean_scene
-
-
-
-
-
-
-# Functions used to create an MD2 Object
 
 def load_gl_commands(gl_command_bytes):
     """
@@ -202,7 +77,7 @@ def load_gl_commands(gl_command_bytes):
     :return: list of dataclasses storing gl commands
     """
     offset = 0
-    gl_commands = list()
+    ModelVars.gl_commands = list()
     while True:  # ends when mode is 0
         # This "mode" is just an integer.  If positive, it's GL_TRIANGLE_STRIP.  If negative, it's GL_TRIANGLE_FAN.  If 0, end of the lump
         (mode,) = struct.unpack("<i", gl_command_bytes[offset : offset + 4]) # 4 bytes - 1 int
@@ -226,26 +101,25 @@ def load_gl_commands(gl_command_bytes):
         # print(gl_vertices)
 
         offset += 12 * num_verts
-        gl_commands.append(glCommand_t(mode, gl_vertices))
-    return gl_commands
+        ModelVars.gl_commands.append(glCommand_t(mode, gl_vertices))
+    return ModelVars.gl_commands
 
 
-def load_triangles(triangle_bytes, header):
+def load_triangles(triangle_bytes):
     """
     Creates basic list of triangle dataclasses which contain indices to vertices
     :param triangle_bytes: bytes from md2 file belonging to triangles lump
     :param header: dataclass containing header information
     :return: list of triangles
     """
-    triangles = list()
-    for i in range(header.num_tris):
+    ModelVars.triangles = list()
+    for i in range(ModelVars.header.num_tris):
         triangle = triangle_t(list(struct.unpack("<hhh", triangle_bytes[12*i:12*i+6])), list(struct.unpack("<hhh", triangle_bytes[12*i+6:12*i+12])))
-        # print(triangle)
-        triangles.append(triangle)
-    return triangles
+        ModelVars.triangles.append(triangle)
 
 
-def load_frames(frames_bytes, header):
+
+def load_frames(frames_bytes):
     """
     Loads frames
     :param frames_bytes: bytes from md2 file belonging to frames lump
@@ -256,21 +130,21 @@ def load_frames(frames_bytes, header):
     # print("len", len(frames_bytes))
     # print("frames", header.num_frames)
     # print("check", header.num_frames*(40+4*header.num_xyz))
-    frames = list()
+    ModelVars.frames = list()
     frame_names = list()
-    if header.resolution == 0: # vertex information in 3 bytes (8 bit vertices)
+    if ModelVars.header.resolution == 0: # vertex information in 3 bytes (8 bit vertices)
         unpack_format = "<BBB"
         resolution_bytes = 0
-    elif header.resolution == 1: # vertex information in 4 bytes (11 bit X, 10 bit Y, 11 bit Z)
+    elif ModelVars.header.resolution == 1: # vertex information in 4 bytes (11 bit X, 10 bit Y, 11 bit Z)
         unpack_format = "<BBB"
         resolution_bytes = 1
-    elif header.resolution == 2: # vertex information in 6 bytes (16 bit vertices)
+    elif ModelVars.header.resolution == 2: # vertex information in 6 bytes (16 bit vertices)
         unpack_format = "<HHH"
         resolution_bytes = 3
 
-    for current_frame_number in range(header.num_frames):
+    for current_frame_number in range(ModelVars.header.num_frames):
 
-        frame_start = (40 + (5 + resolution_bytes) * header.num_xyz) * current_frame_number
+        frame_start = (40 + (5 + resolution_bytes) * ModelVars.header.num_xyz) * current_frame_number
 
         # Get any scaling for this frame of animation
         scale = vec3_t(*struct.unpack("<fff", frames_bytes[frame_start : frame_start + 12]))
@@ -298,8 +172,8 @@ def load_frames(frames_bytes, header):
         # print(f"Vertex Resolution: {header.resolution}")
 
         # Loop for the number of vertices
-        for v in range(header.num_xyz):
-            if header.resolution == 0 or header.resolution == 2:
+        for v in range(ModelVars.header.num_xyz):
+            if ModelVars.header.resolution == 0 or ModelVars.header.resolution == 2:
                 # First mess is the vertex (vector)
                 vertex_start_index = frame_start + 40 + v * (5 + resolution_bytes)
                 vertex_end_index = vertex_start_index + (3 + resolution_bytes)
@@ -312,8 +186,8 @@ def load_frames(frames_bytes, header):
                 normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])
 
 
-            elif header.resolution == 1:
-                vertex_start_index = (40 + 6 * header.num_xyz) * current_frame_number + 40 + v * 6
+            elif ModelVars.header.resolution == 1:
+                vertex_start_index = (40 + 6 * ModelVars.header.num_xyz) * current_frame_number + 40 + v * 6
                 vertexBytes = int.from_bytes(frames_bytes[vertex_start_index : vertex_start_index + 4], sys.byteorder)
                 # print(f"vertex bytes value: {vertexBytes}")
                 x = vertexBytes >> 0 & 0x000007ff
@@ -323,8 +197,8 @@ def load_frames(frames_bytes, header):
                 vector = [x,y,z]
                 # print(f"Vertex vector after bit shift: {vector}")
 
-                lightnormal_start_index = (40 + 6 * header.num_xyz) * current_frame_number + 44 + v * 6
-                lightnormal_end_index = (40 + 6 * header.num_xyz) * current_frame_number + 46 + v * 6
+                lightnormal_start_index = (40 + 6 * ModelVars.header.num_xyz) * current_frame_number + 44 + v * 6
+                lightnormal_end_index = (40 + 6 * ModelVars.header.num_xyz) * current_frame_number + 46 + v * 6
                 normal = struct.unpack("<H", frames_bytes[lightnormal_start_index : lightnormal_end_index])[0]
 
             # print(f"Vector: {vector}")
@@ -337,11 +211,11 @@ def load_frames(frames_bytes, header):
         # print(scale, translate, name, verts)
         frame = frame_t(scale, translate, name, verts)
         # print("Frame: ",frame)
-        frames.append(frame)
+        ModelVars.frames.append(frame)
         # print("Frame names ", frame_names)
 
     # print("Frame Names", frame_names) # write code to count the number of frames in each frame name
-    return frames
+    return ModelVars.frames
 
 
 def load_header(file_bytes):
@@ -352,17 +226,17 @@ def load_header(file_bytes):
     """
     # print(file_bytes[:4].decode("ascii", "ignore"))
     arguments = struct.unpack("<ihhiiiiiiiiiiiiiiiiifffii", file_bytes[:96])
-    header = md2_t(*arguments)
+    ModelVars.header = md2_t(*arguments)
     # Verify MD2
-    if not header.ident == 844121161 or not header.version == 15:
+    if not ModelVars.header.ident == 844121161 or not ModelVars.header.version == 15:
         print(f"Error: File type is not MD2. Ident or version not matching")
         print(f'Ident: {file_bytes[:4].decode("ascii", "ignore")} should be "IDP2"')
-        print(f"Version: {header.version} should be 15")
+        print(f"Version: {ModelVars.header.version} should be 15")
 
 
     print("--------------- HEADER VALUES -------------------")
-    for field in fields(header):
-        print(f"{field.name} - ", getattr(header, field.name))
+    for field in fields(ModelVars.header):
+        print(f"{field.name} - ", getattr(ModelVars.header, field.name))
 
     print("--------------------------------------------------")
 
@@ -373,10 +247,9 @@ def load_header(file_bytes):
 
     # Prim is abbreviating "primitive," which is another way to refer to a gl command, as it ends up being a primitive shape/polygon.
     # In the case of Quake II/Anachronox models being dealt with here, triangles only.
-    header.num_prim = header.num_skins
-    header.ofs_prim = header.ofs_glcmds + (4 * header.num_glcmds)
+    ModelVars.header.num_prim = ModelVars.header.num_skins
+    ModelVars.header.ofs_prim = ModelVars.header.ofs_glcmds + (4 * ModelVars.header.num_glcmds)
 
-    return header
 
 
 def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_formats: list[str]):
@@ -403,183 +276,6 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
             except Exception as e: # pylint: disable=broad-except
                 print(f"⛔ Warning: Error opening image {candidate_path}: {e}")
     return None, None
-
-
-def load_texture_paths_and_skin_resolutions(skin_names):
-    texture_paths = {}
-    skin_resolutions = {}
-
-    print("***TEXTURES***")
-
-    model_file_path_obj = Path(ImportOptions.filepath)
-    initial_model_dir = model_file_path_obj.parent
-    model_filename_stem = model_file_path_obj.stem
-
-    for skin_index, skin_name_raw in enumerate(skin_names):
-        print(f"Getting textures for skin {skin_index} : {skin_name_raw}")
-        print(f'ℹ️ Path to file: {model_file_path_obj}')
-
-        # This variable mirrors 'model_path' from original, which changes based on MDA/ATD
-        current_texture_search_base_str = str(initial_model_dir)
-        print(f'ℹ️ Folder: {current_texture_search_base_str}')
-
-        embedded_texture_name = skin_name_raw.rstrip("\x00")
-        # remove extension (last one)
-        embedded_texture_name_stem = Path(embedded_texture_name).stem
-        print(f"ℹ️ Embedded Texture Name {embedded_texture_name}")
-
-        print('----------------------------------------------------------------------------------------------------------------')
-        found_texture_file_path = None
-        found_texture_resolution = None
-
-        # Attempt 1: Look for existing file of given name and supported image format
-        # Based on embedded texture name in the model's directory or a subdirectory
-
-        # Path in .md2 directory
-        # Added support for autoloading textures from .md2 directory
-        texture_base_candidate1 = initial_model_dir / embedded_texture_name_stem
-        print(f'ℹ️ Texture Path: {texture_base_candidate1} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
-        found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
-            texture_base_candidate1, SUPPORTED_IMAGE_FORMATS
-        )
-
-        if not found_texture_file_path:
-            # Path in subdirectory with the same name as the embedded texture
-            # Added support for autoloading textures from a subdirectory with the same name as the embedded texture
-            texture_base_candidate2 = initial_model_dir / embedded_texture_name_stem / embedded_texture_name_stem
-            print(f'ℹ️ Subtexture Path: {texture_base_candidate2}({",".join(SUPPORTED_IMAGE_FORMATS)})')
-            found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
-                texture_base_candidate2, SUPPORTED_IMAGE_FORMATS
-            )
-        print('----------------------------------------------------------------------------------------------------------------')
-
-        # if a texture is not located insert a blank texture name into array ... and assign a bum resolution
-        if not found_texture_file_path:
-            skin_resolutions[skin_index] = (64, 64)
-            texture_paths[skin_index] = ""
-        else:
-            texture_paths[skin_index] = str(found_texture_file_path)
-            skin_resolutions[skin_index] = found_texture_resolution
-
-
-        # --- MDA Fallback ---
-        if texture_paths[skin_index] == "":
-            print("❌ Unable to locate texture, trying to find associated MDA file...")
-            character_folder = initial_model_dir.parent     # Hopefully...folder that contains the model, skin, etc...
-
-            # Look for MDA in current folder
-            mda_path = initial_model_dir / (model_filename_stem + ".mda")
-            if not mda_path.is_file():
-                # Look for MDA in parent folder
-                mda_path = initial_model_dir.parent / (model_filename_stem + ".mda")
-
-            # MDA is not ALWAYS named the same as the model file X-[...
-            # This will check for the MDA matching the FOLDER that corresponds to the character name.
-            # Example is rictus, which has rictus.mda, but the model is named kraptonguy.  krap...
-            if not mda_path.is_file():
-                mda_path = character_folder / Path(character_folder.name + ".mda")
-
-            # Account for naming convention break by taking the closest MDA
-            # Example: detta2g_cine.md2 & dettag2_cine.mda (2 & g switched...
-            if not mda_path.is_file():
-                # Get any files ending in .mda in the main character's folder
-                mda_files = [str(f) for f in character_folder.glob("**/*.mda")]
-                print(f"Checking any mda files: {mda_files}\nfor similarity to model file: {model_filename_stem}")
-                best = None
-                best_ratio = -1.0
-                for f in mda_files:
-                    ratio = SequenceMatcher(None, model_filename_stem, Path(f).name).ratio()
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best = f
-                mda_path = Path(best)
-
-                print(f"MDA file decided on: {mda_path}")
-
-            if mda_path.is_file():
-                print(f"✅ Found MDA: {mda_path}")
-                grouped_maps = parse_material_file(str(mda_path))
-
-                mda_texture_rel_path_str = None
-                if grouped_maps:
-                    map_key_to_use = "DFLT" if "DFLT" in grouped_maps else next(iter(grouped_maps), None)
-                    # print(f"\nGROUPED MAPS: {grouped_maps}")
-                    print(f"MAP KEY TO USE: {map_key_to_use}\n")
-
-                    if map_key_to_use and map_key_to_use in grouped_maps:
-                        texture_list_for_key = grouped_maps[map_key_to_use]
-                        # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
-
-                        if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
-                            mda_texture_rel_path_str = texture_list_for_key[skin_index]
-                        else:
-                            mda_texture_rel_path_str = texture_list_for_key[0]
-                            print(f"⛔ Warning: Skin index {skin_index} out of bounds or invalid format for key '{map_key_to_use}' in MDA maps.")
-                            print("⛔ Using first texture anyway (Models like Rictus refer to the same texture twice) ⛔")
-                    else:
-                        print("⛔ Warning: No suitable key ('DFLT' or first key) found in MDA maps or map is empty.")
-                else:
-                    print("⛔ Warning: MDA file parsed to empty grouped_maps.")
-
-                if mda_texture_rel_path_str:
-                    print(f"MDA relative path: {mda_texture_rel_path_str}")
-                    current_texture_search_base_str = merge_paths(str(initial_model_dir), str(mda_texture_rel_path_str))
-                    print(f"ℹ️ Path after MDA merge: {current_texture_search_base_str}")
-
-                    mda_derived_tex_base = Path(current_texture_search_base_str)
-                    print(f'ℹ️ Texture Path (from MDA): {mda_derived_tex_base} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
-                    found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
-                        mda_derived_tex_base, SUPPORTED_IMAGE_FORMATS
-                    )
-
-                    if found_texture_file_path:
-                        texture_paths[skin_index] = str(found_texture_file_path)
-                        skin_resolutions[skin_index] = found_texture_resolution
-            else:
-                print(f"❌ No MDA file found for {model_filename_stem} in {initial_model_dir} or {initial_model_dir.parent}")
-
-
-
-
-        # --- ATD Fallback ---
-        if texture_paths[skin_index] == "":
-            print("❌ Unable to locate texture after MDA (or MDA not found/used), trying ATD...")
-            atd_file_candidate = Path(current_texture_search_base_str).with_suffix(".atd")
-            print(f'ℹ️ ATD file lookup: {atd_file_candidate}')
-
-            if atd_file_candidate.is_file():
-                print(f"✅ Found ATD: {atd_file_candidate}")
-                res_from_atd = extract_file_value(str(atd_file_candidate))
-                if res_from_atd:
-                    print(f"ℹ️ ATD extraction result: {res_from_atd}")
-                    current_texture_search_base_str = merge_paths(current_texture_search_base_str, res_from_atd)
-                    print(f"ℹ️ Path after ATD merge: {current_texture_search_base_str}")
-
-                    atd_derived_tex_base = Path(current_texture_search_base_str)
-                    print(f'ℹ️ Texture Path (from ATD): {atd_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
-                    found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
-                        atd_derived_tex_base, SUPPORTED_IMAGE_FORMATS
-                    )
-                    if found_texture_file_path:
-                        texture_paths[skin_index] = str(found_texture_file_path)
-                        skin_resolutions[skin_index] = found_texture_resolution
-                else:
-                    print(f"❌ ATD file {atd_file_candidate} did not yield a value.")
-            else:
-                print(f"❌ ATD file {atd_file_candidate} not found.")
-
-        # Final check if texture was found for this skin_index
-        if texture_paths[skin_index] == "":
-            print(f"❌ Unable to locate texture for '{current_texture_search_base_str}/{embedded_texture_name}'!")
-            # Ensure defaults are set if all attempts failed
-            skin_resolutions[skin_index] = (64, 64) 
-            texture_paths[skin_index] = ""
-
-
-    print("\n")
-    print(f"Skin resolution info:\n{skin_resolutions}")
-
-    return texture_paths, skin_resolutions
 
 
 def extract_file_value(file_path):
@@ -749,7 +445,6 @@ def parse_material_file(file_path):
     return dict(results) # Convert defaultdict to dict for cleaner output if preferred
 
 
-
 def truncate_after(lst, marker):
     if marker in lst:
         return lst[:lst.index(marker)]
@@ -839,21 +534,19 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
     """
 
     # Dictionary to store which triangles each gl command will be associated with
-    triangle_skin_dict = {}
     extra_data_index = 0
-
-    extra_data_total = extra_data[extra_data_index]
+    extra_data_total = ModelVars.extra_data[extra_data_index]
 
     # If there's only 1 skin, there will not be extra data or the need to separate triangles by skin
-    if len(extra_data) < 1:
-        for triangle_index, triangle in enumerate(triangles):
-            triangle_skin_dict[triangle_index] = 0
+    if len(ModelVars.extra_data) < 1:
+        for triangle_index, triangle in enumerate(ModelVars.triangles):
+            ModelVars.triangle_skin_dict[triangle_index] = 0
 
     else:
         print("Extra data length > 1, handling multiple textures...")
-        for command_index, command in enumerate(gl_commands):
+        for command_index, command in enumerate(ModelVars.gl_commands):
 
-            for triangle_index, triangle in enumerate(triangles):
+            for triangle_index, triangle in enumerate(ModelVars.triangles):
                 vertex_match_count = 0
                 # Check every vertex index to see if it's in any of the triangle vertex references
                 # print(f"Iterating over vertices: {command.vertices}")
@@ -867,28 +560,28 @@ def load_triangle_gl_list(gl_commands, triangles, extra_data):
                         vertex_match_count += 1
 
                 if vertex_match_count >= 3:
-                    triangle_skin_dict[triangle_index] = extra_data_index
+                    ModelVars.triangle_skin_dict[triangle_index] = extra_data_index
 
             # Each extra data value is a number of gl commands to draw the given texture, NOT an offset
             # So, in order to track when to switch, the extra data total will keep a record of the SUM of these values, so the (gl) command index 
             # can be used to know when we've hit the gl command on which we should proceed to the next texture
-            if command_index + 1 == extra_data_total and command_index + 1 != len(gl_commands):
+            if command_index + 1 == extra_data_total and command_index + 1 != len(ModelVars.gl_commands):
                 # print("Incrementing extra data index...")
-                # print(f"Gl command index: {command_index}, extra data value: {extra_data[extra_data_index]}")
+                # print(f"Gl command index: {command_index}, extra data value: {ModelVars.extra_data[extra_data_index]}")
                 extra_data_index += 1
-                extra_data_total += extra_data[extra_data_index]
+                extra_data_total += ModelVars.extra_data[extra_data_index]
                 # print(f"Extra data total: {extra_data_total}")
 
     # print(triangle_gl_commands)
-    print(f"Total of {len(triangle_skin_dict)} triangles associated to a gl command.")
+    print(f"Total of {len(ModelVars.triangle_skin_dict)} triangles associated to a gl command.")
 
-    if len(triangle_skin_dict) < len(triangles):
+    if len(ModelVars.triangle_skin_dict) < len(ModelVars.triangles):
         print("Issue!  Not all triangles were derived from the gl command vertices!")
-        for triangle_index, triangle in enumerate(triangles):
-            if triangle_index not in triangle_skin_dict:
+        for triangle_index, triangle in enumerate(ModelVars.triangles):
+            if triangle_index not in ModelVars.triangle_skin_dict:
                 print(f"Triangle {triangle_index} is not in triangle=>skin dictionary!")
 
-    return triangle_skin_dict
+    return ModelVars.triangle_skin_dict
 
 
 def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_resolutions, triangle_gl_dictionary, texture_scale):
@@ -899,24 +592,24 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_r
     :return: list of texture coordinate dataclass objects
     """
 
-    texture_coordinates = list()
+    ModelVars.texture_coordinates = list()
 
     # It seems that lw2md2, used by the ION team, subtracts 1 before creating the S & T coordinates, which scales them incorrectly.  Compensate with this & scale offset below
     coordinate_offset = 0
 
-    for i in range(header.num_st):
+    for i in range(ModelVars.header.num_st):
         current_coordinate = textureCoordinate_t(*struct.unpack("<hh", texture_coordinate_bytes[4*i:4*i+4]))
         current_coordinate.s += coordinate_offset
         current_coordinate.t += coordinate_offset
-        texture_coordinates.append(current_coordinate)
+        ModelVars.texture_coordinates.append(current_coordinate)
         # print(f"{i} - {current_coordinate}")
 
     scale_offset = -2
     texture_skin_dict = {}
     # Iterate over all coordinates
-    for coord_index, coordinate in enumerate(texture_coordinates):
+    for coord_index, coordinate in enumerate(ModelVars.texture_coordinates):
         # For every coordinate, check all the triangles...
-        for triangle_index, triangle in enumerate(triangles):
+        for triangle_index, triangle in enumerate(ModelVars.triangles):
             # If any of the 3 verts (by index) of the triangle are this coordinate...
             if triangle.textureIndices[0] == coord_index or triangle.textureIndices[1] == coord_index or triangle.textureIndices[2] == coord_index:
                 # Associate this TEXTURE with this coordinate - this is necessary because the UVs need to account for different texture sizes on multiple-texture models
@@ -926,75 +619,12 @@ def load_texture_coordinates(texture_coordinate_bytes, header, triangles, skin_r
 
     # Get the s,t (u,v) for each coordinate
     # This uses the above association of coordinate to texture, calculating the UV to be proportional to the width & height of the texture it goes with
-    for coord_index, coord in enumerate(texture_coordinates):
+    for coord_index, coord in enumerate(ModelVars.texture_coordinates):
         # skin_resolutions returns the x & y size of the texture in question
         # offset here is to account for what seems to be an issue in the creation of the original Anachronox models (as is the coordinate offset above)
-        coord.s = coord.s / (((skin_resolutions[texture_skin_dict[coord_index]][0]) / ImportOptions.texture_scale) + scale_offset)
-        coord.t = coord.t / (((skin_resolutions[texture_skin_dict[coord_index]][1]) / ImportOptions.texture_scale) + scale_offset)
+        coord.s = coord.s / (((ModelVars.skin_resolutions[texture_skin_dict[coord_index]][0]) / ImportOptions.texture_scale) + scale_offset)
+        coord.t = coord.t / (((ModelVars.skin_resolutions[texture_skin_dict[coord_index]][1]) / ImportOptions.texture_scale) + scale_offset)
         # print(f"Post Calculation {coord_index}: S: {coord.s}, T: {coord.t}")
-
-    return texture_coordinates
-
-
-def load_file():
-    """
-    Master function returning one dataclass object containing all the MD2 information
-    :param path:
-    :return:
-    """
-    with open(ImportOptions.filepath, "rb") as f:
-        byte_list = f.read()  # stores all bytes in bytes1 variable (named like that to not interfere with builtin names
-    header = load_header(byte_list)
-    skin_names = [byte_list[header.ofs_skins + 64 * x:header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(header.num_skins)]
-    # print(f"Skin Names {skin_names}")
-
-    triangles = load_triangles(byte_list[header.ofs_tris:header.ofs_frames], header)
-    frames = load_frames(byte_list[header.ofs_frames:header.ofs_glcmds], header)
-    texture_paths, skin_resolutions = load_texture_paths_and_skin_resolutions(skin_names)
-
-    gl_commands = load_gl_commands(byte_list[header.ofs_glcmds:header.ofs_glcmd_counts])
-
-    # This is not the "num_glcmds" from the header.  That number counts each vertex as a separate command.  The following is the number of ACTUAL gl commands
-    print(f"Parsed {len(gl_commands)} GL Commands.")
-
-    print(f"\nNumber of primitives: {header.num_prim}")
-    print(f"Offset primitives: {header.ofs_prim}\n")
-
-    #tsurf_names = [byte_list[header.ofs_tsurf + 12 * x:header.ofs_tsurf + 12 * x + 8].decode("ascii", "ignore") for x in range(header.num_tsurf)]
-    tsurf_dictionary = {}
-    for i in range(header.num_tsurf):
-        tsurf_start_index = header.ofs_tsurf + (i * 12)
-        surface_name = byte_list[tsurf_start_index : tsurf_start_index + 8].decode("ascii", "ignore").rstrip("\x00")
-        surface_triange = struct.unpack("<i", byte_list[tsurf_start_index + 8 : tsurf_start_index + 12])[0]
-        tsurf_dictionary[surface_name] = surface_triange
-
-    print(f"Tagged Surface Names & Triangles:\n{tsurf_dictionary}")
-
-    extra_data = list()
-    triangle_skin_dictionary = {}
-
-    primitive_bytes = byte_list[header.ofs_prim : header.ofs_tsurf]
-    for i in range(header.num_prim):
-        value = struct.unpack("<H", primitive_bytes[0 + (i * 2) : 0 + (i * 2) + 2])[0]
-        extra_data.append(value)
-        print(f"Extra data value {i+1}: Texture {i+1} applies to {value} gl commands...")
-
-    triangle_skin_dictionary = load_triangle_gl_list(gl_commands, triangles, extra_data)
-
-    texture_coordinates = load_texture_coordinates(byte_list[header.ofs_st:header.ofs_tris], header, triangles, skin_resolutions, triangle_skin_dictionary, ImportOptions.texture_scale)
-
-    for i_frame in range(len(frames)):
-        for i_vert in range((header.num_xyz)):
-            frames[i_frame].verts[i_vert].v[0] = frames[i_frame].verts[i_vert].v[0] * frames[i_frame].scale.x + frames[i_frame].translate.x
-            frames[i_frame].verts[i_vert].v[1] = frames[i_frame].verts[i_vert].v[1] * frames[i_frame].scale.y + frames[i_frame].translate.y
-            frames[i_frame].verts[i_vert].v[2] = frames[i_frame].verts[i_vert].v[2] * frames[i_frame].scale.z + frames[i_frame].translate.z
-
-    vertices = list()
-    for i, vert in enumerate(frames[0].verts):
-        vertices.append(vertex_indexed(i, vert))
-
-    model = md2_object(header, skin_names, triangles, frames, texture_coordinates, gl_commands, tsurf_dictionary, vertices, triangle_skin_dictionary, extra_data, texture_paths)
-    return model
 
 
 def blender_load_md2():
@@ -1045,11 +675,284 @@ def blender_load_md2():
     print(f"md2_path: {ImportOptions.filepath}")
     ModelVars.model_path = '\\'.join(ImportOptions.filepath.split('\\')[0:-1])+"\\"
     print(f"Model Path: {ModelVars.model_path}")
-    model_filename = "\\".join(ImportOptions.filepath.split("\\")[-1:])
-    print(f"Model Filename: {model_filename}")
+    ModelVars.model_filename = "\\".join(ImportOptions.filepath.split("\\")[-1:])
+    print(f"Model Filename: {ModelVars.model_filename}")
 
-    # A dataclass containing all information stored in a .md2 file
-    ModelVars.my_object = load_file()
+
+    with open(ImportOptions.filepath, "rb") as f:
+        ModelVars.byte_list = f.read()  # stores all bytes in bytes1 variable (named like that to not interfere with builtin names
+    load_header(ModelVars.byte_list)
+    ModelVars.skin_names = [ModelVars.byte_list[ModelVars.header.ofs_skins + 64 * x:ModelVars.header.ofs_skins + 64 * x + 64].decode("ascii", "ignore") for x in range(ModelVars.header.num_skins)]
+    # print(f"Skin Names {ModelVars.skin_names}")
+
+    load_triangles(ModelVars.byte_list[ModelVars.header.ofs_tris:ModelVars.header.ofs_frames])
+    ModelVars.frames = load_frames(ModelVars.byte_list[ModelVars.header.ofs_frames:ModelVars.header.ofs_glcmds])
+
+    ModelVars.gl_commands = load_gl_commands(ModelVars.byte_list[ModelVars.header.ofs_glcmds:ModelVars.header.ofs_glcmd_counts])
+
+    # This is not the "num_glcmds" from the header.  That number counts each vertex as a separate command.  The following is the number of ACTUAL gl commands
+    print(f"Parsed {len(ModelVars.gl_commands)} GL Commands.")
+
+    print(f"\nNumber of primitives: {ModelVars.header.num_prim}")
+    print(f"Offset primitives: {ModelVars.header.ofs_prim}\n")
+
+    ModelVars.tsurf_dictionary = {}
+    for i in range(ModelVars.header.num_tsurf):
+        tsurf_start_index = ModelVars.header.ofs_tsurf + (i * 12)
+        surface_name = ModelVars.byte_list[tsurf_start_index : tsurf_start_index + 8].decode("ascii", "ignore").rstrip("\x00")
+        surface_triange = struct.unpack("<i", ModelVars.byte_list[tsurf_start_index + 8 : tsurf_start_index + 12])[0]
+        ModelVars.tsurf_dictionary[surface_name] = surface_triange
+
+    print(f"Tagged Surface Names & Triangles:\n{ModelVars.tsurf_dictionary}")
+
+    ModelVars.extra_data = list()
+    ModelVars.triangle_skin_dict = {}
+
+    primitive_bytes = ModelVars.byte_list[ModelVars.header.ofs_prim : ModelVars.header.ofs_tsurf]
+    for i in range(ModelVars.header.num_prim):
+        value = struct.unpack("<H", primitive_bytes[0 + (i * 2) : 0 + (i * 2) + 2])[0]
+        ModelVars.extra_data.append(value)
+        print(f"Extra data value {i+1}: Texture {i+1} applies to {value} gl commands...")
+
+    ModelVars.triangle_skin_dict = load_triangle_gl_list(ModelVars.gl_commands, ModelVars.triangles, ModelVars.extra_data)
+
+
+def assign_texture_paths_by_profile(map_key_to_use):
+    model_file_path_obj = Path(ImportOptions.filepath)
+    initial_model_dir = model_file_path_obj.parent
+
+    for skin_index, skin_name_raw in enumerate(ModelVars.skin_names):
+        texture_list_for_key = ModelVars.grouped_maps[map_key_to_use]
+        # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
+
+        if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
+            mda_texture_rel_path_str = texture_list_for_key[skin_index]
+        else:
+            mda_texture_rel_path_str = texture_list_for_key[0]
+        if mda_texture_rel_path_str:
+            print(f"MDA relative path: {mda_texture_rel_path_str}")
+            current_texture_search_base_str = merge_paths(str(initial_model_dir), str(mda_texture_rel_path_str))
+            print(f"ℹ️ Path after MDA merge: {current_texture_search_base_str}")
+
+            mda_derived_tex_base = Path(current_texture_search_base_str)
+            print(f'ℹ️ Texture Path (from MDA): {mda_derived_tex_base} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
+            found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                mda_derived_tex_base, SUPPORTED_IMAGE_FORMATS
+            )
+
+            if found_texture_file_path:
+                ModelVars.texture_paths[skin_index] = str(found_texture_file_path)
+                ModelVars.skin_resolutions[skin_index] = found_texture_resolution
+
+
+def get_texture_paths():
+    ModelVars.texture_paths = {}
+    ModelVars.skin_resolutions = {}
+    ModelVars.grouped_maps = {}
+    ModelVars.multiple_profiles = False
+    ModelVars.map_key_to_use = None
+    ModelVars.mda_path = ""
+
+    print("***TEXTURES***")
+
+    model_file_path_obj = Path(ImportOptions.filepath)
+    initial_model_dir = model_file_path_obj.parent
+    model_filename_stem = model_file_path_obj.stem
+
+    for skin_index, skin_name_raw in enumerate(ModelVars.skin_names):
+        print(f"Getting textures for skin {skin_index} : {skin_name_raw}")
+        print(f'ℹ️ Path to file: {model_file_path_obj}')
+
+        # This variable mirrors 'model_path' from original, which changes based on MDA/ATD
+        current_texture_search_base_str = str(initial_model_dir)
+        print(f'ℹ️ Folder: {current_texture_search_base_str}')
+
+        embedded_texture_name = skin_name_raw.rstrip("\x00")
+        # remove extension (last one)
+        embedded_texture_name_stem = Path(embedded_texture_name).stem
+        print(f"ℹ️ Embedded Texture Name {embedded_texture_name}")
+
+        print('----------------------------------------------------------------------------------------------------------------')
+        found_texture_file_path = None
+        found_texture_resolution = None
+
+        # Attempt 1: Look for existing file of given name and supported image format
+        # Based on embedded texture name in the model's directory or a subdirectory
+
+        # Path in .md2 directory
+        # Added support for autoloading textures from .md2 directory
+        texture_base_candidate1 = initial_model_dir / embedded_texture_name_stem
+        print(f'ℹ️ Texture Path: {texture_base_candidate1} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
+        found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+            texture_base_candidate1, SUPPORTED_IMAGE_FORMATS
+        )
+
+        if not found_texture_file_path:
+            # Path in subdirectory with the same name as the embedded texture
+            # Added support for autoloading textures from a subdirectory with the same name as the embedded texture
+            texture_base_candidate2 = initial_model_dir / embedded_texture_name_stem / embedded_texture_name_stem
+            print(f'ℹ️ Subtexture Path: {texture_base_candidate2}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+            found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                texture_base_candidate2, SUPPORTED_IMAGE_FORMATS
+            )
+        print('----------------------------------------------------------------------------------------------------------------')
+
+        # if a texture is not located insert a blank texture name into array ... and assign a bum resolution
+        if not found_texture_file_path:
+            ModelVars.skin_resolutions[skin_index] = (64, 64)
+            ModelVars.texture_paths[skin_index] = ""
+        else:
+            ModelVars.texture_paths[skin_index] = str(found_texture_file_path)
+            ModelVars.skin_resolutions[skin_index] = found_texture_resolution
+
+
+        # --- MDA Fallback ---
+        if ModelVars.texture_paths[skin_index] == "":
+            print("❌ Unable to locate texture, trying to find associated MDA file...")
+            character_folder = initial_model_dir.parent     # Hopefully...folder that contains the model, skin, etc...
+
+            # Look for MDA in current folder
+            ModelVars.mda_path = initial_model_dir / (model_filename_stem + ".mda")
+            if not ModelVars.mda_path.is_file():
+                # Look for MDA in parent folder
+                ModelVars.mda_path = initial_model_dir.parent / (model_filename_stem + ".mda")
+
+            # MDA is not ALWAYS named the same as the model file X-[...
+            # This will check for the MDA matching the FOLDER that corresponds to the character name.
+            # Example is rictus, which has rictus.mda, but the model is named kraptonguy.  krap...
+            if not ModelVars.mda_path.is_file():
+                ModelVars.mda_path = character_folder / Path(character_folder.name + ".mda")
+
+            # Account for naming convention break by taking the closest MDA
+            # Example: detta2g_cine.md2 & dettag2_cine.mda (2 & g switched...
+            if not ModelVars.mda_path.is_file():
+                # Get any files ending in .mda in the main character's folder
+                mda_files = [str(f) for f in character_folder.glob("**/*.mda")]
+                print(f"Checking any mda files: {mda_files}\nfor similarity to model file: {model_filename_stem}")
+                best = None
+                best_ratio = -1.0
+                for f in mda_files:
+                    ratio = SequenceMatcher(None, model_filename_stem, Path(f).name).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best = f
+                ModelVars.mda_path = Path(best)
+
+                print(f"MDA file decided on: {ModelVars.mda_path}")
+
+            if ModelVars.mda_path.is_file():
+                print(f"✅ Found MDA: {ModelVars.mda_path}")
+                ModelVars.grouped_maps = parse_material_file(str(ModelVars.mda_path))
+
+                mda_texture_rel_path_str = None
+                if ModelVars.grouped_maps:
+                    if len(ModelVars.grouped_maps) > 1:
+                        ModelVars.multiple_profiles = True
+                    else:
+                        ModelVars.multiple_profiles = False
+
+                    ModelVars.map_key_to_use = "DFLT" if "DFLT" in ModelVars.grouped_maps else next(iter(ModelVars.grouped_maps), None)
+                    # print(f"\nGROUPED MAPS: {ModelVars.grouped_maps}")
+                    print(f"MAP KEY TO USE: {ModelVars.map_key_to_use}\n")
+
+                    if ModelVars.map_key_to_use and ModelVars.map_key_to_use in ModelVars.grouped_maps:
+                        texture_list_for_key = ModelVars.grouped_maps[ModelVars.map_key_to_use]
+                        # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
+
+                        if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
+                            mda_texture_rel_path_str = texture_list_for_key[skin_index]
+                        else:
+                            mda_texture_rel_path_str = texture_list_for_key[0]
+                            print(f"⛔ Warning: Skin index {skin_index} out of bounds or invalid format for key '{ModelVars.map_key_to_use}' in MDA maps.")
+                            print("⛔ Using first texture anyway (Models like Rictus refer to the same texture twice) ⛔")
+                    else:
+                        print("⛔ Warning: No suitable key ('DFLT' or first key) found in MDA maps or map is empty.")
+                else:
+                    print("⛔ Warning: MDA file parsed to empty grouped_maps.")
+
+                if mda_texture_rel_path_str:
+                    print(f"MDA relative path: {mda_texture_rel_path_str}")
+                    current_texture_search_base_str = merge_paths(str(initial_model_dir), str(mda_texture_rel_path_str))
+                    print(f"ℹ️ Path after MDA merge: {current_texture_search_base_str}")
+
+                    mda_derived_tex_base = Path(current_texture_search_base_str)
+                    print(f'ℹ️ Texture Path (from MDA): {mda_derived_tex_base} ({",".join(SUPPORTED_IMAGE_FORMATS)})')
+                    found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                        mda_derived_tex_base, SUPPORTED_IMAGE_FORMATS
+                    )
+
+                    if found_texture_file_path:
+                        ModelVars.texture_paths[skin_index] = str(found_texture_file_path)
+                        ModelVars.skin_resolutions[skin_index] = found_texture_resolution
+            else:
+                print(f"❌ No MDA file found for {model_filename_stem} in {initial_model_dir} or {initial_model_dir.parent}")
+
+
+        # --- ATD Fallback ---
+        if ModelVars.texture_paths[skin_index] == "":
+            print("❌ Unable to locate texture after MDA (or MDA not found/used), trying ATD...")
+            atd_file_candidate = Path(current_texture_search_base_str).with_suffix(".atd")
+            print(f'ℹ️ ATD file lookup: {atd_file_candidate}')
+
+            if atd_file_candidate.is_file():
+                print(f"✅ Found ATD: {atd_file_candidate}")
+                res_from_atd = extract_file_value(str(atd_file_candidate))
+                if res_from_atd:
+                    print(f"ℹ️ ATD extraction result: {res_from_atd}")
+                    current_texture_search_base_str = merge_paths(current_texture_search_base_str, res_from_atd)
+                    print(f"ℹ️ Path after ATD merge: {current_texture_search_base_str}")
+
+                    atd_derived_tex_base = Path(current_texture_search_base_str)
+                    print(f'ℹ️ Texture Path (from ATD): {atd_derived_tex_base}({",".join(SUPPORTED_IMAGE_FORMATS)})')
+                    found_texture_file_path, found_texture_resolution = _try_load_texture_from_base(
+                        atd_derived_tex_base, SUPPORTED_IMAGE_FORMATS
+                    )
+                    if found_texture_file_path:
+                        ModelVars.texture_paths[skin_index] = str(found_texture_file_path)
+                        ModelVars.skin_resolutions[skin_index] = found_texture_resolution
+                else:
+                    print(f"❌ ATD file {atd_file_candidate} did not yield a value.")
+            else:
+                print(f"❌ ATD file {atd_file_candidate} not found.")
+
+        # Final check if texture was found for this skin_index
+        if ModelVars.texture_paths[skin_index] == "":
+            print(f"❌ Unable to locate texture for '{current_texture_search_base_str}/{embedded_texture_name}'!")
+            # Ensure defaults are set if all attempts failed
+            ModelVars.skin_resolutions[skin_index] = (64, 64)
+            ModelVars.texture_paths[skin_index] = ""
+
+
+    print("\n")
+    print(f"Skin resolution info:\n{ModelVars.skin_resolutions}")
+
+
+
+
+
+
+def get_md2_object():
+    load_texture_coordinates(ModelVars.byte_list[ModelVars.header.ofs_st:ModelVars.header.ofs_tris], ModelVars.header, ModelVars.triangles, ModelVars.skin_resolutions, ModelVars.triangle_skin_dict, ImportOptions.texture_scale)
+
+    for i_frame in range(len(ModelVars.frames)):
+        for i_vert in range((ModelVars.header.num_xyz)):
+            ModelVars.frames[i_frame].verts[i_vert].v[0] = ModelVars.frames[i_frame].verts[i_vert].v[0] * ModelVars.frames[i_frame].scale.x + ModelVars.frames[i_frame].translate.x
+            ModelVars.frames[i_frame].verts[i_vert].v[1] = ModelVars.frames[i_frame].verts[i_vert].v[1] * ModelVars.frames[i_frame].scale.y + ModelVars.frames[i_frame].translate.y
+            ModelVars.frames[i_frame].verts[i_vert].v[2] = ModelVars.frames[i_frame].verts[i_vert].v[2] * ModelVars.frames[i_frame].scale.z + ModelVars.frames[i_frame].translate.z
+
+    ModelVars.vertices = list()
+    for i, vert in enumerate(ModelVars.frames[0].verts):
+        ModelVars.vertices.append(vertex_indexed(i, vert))
+
+    ModelVars.my_object = md2_object(ModelVars.header, ModelVars.skin_names, ModelVars.triangles, ModelVars.frames, ModelVars.texture_coordinates, ModelVars.gl_commands, ModelVars.tsurf_dictionary, ModelVars.vertices, ModelVars.triangle_skin_dict, ModelVars.extra_data, ModelVars.texture_paths)
+
+
+
+
+
+
+
+
 
     # Gets name to give to the object and mesh in the outliner
     if not ImportOptions.displayed_name:
