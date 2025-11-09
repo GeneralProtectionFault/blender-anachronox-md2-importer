@@ -321,7 +321,10 @@ def parse_material_file(file_path):
 
     # Regex to find 'map "some/path/here"' and capture "some/path/here"
     # It allows for optional whitespace after "map"
-    map_regex = re.compile(r'map\s+"(.*?)"')
+    # map_regex = re.compile(r'map\s+"(.*?)"')
+
+    # Alternate regex allows charcters before "map", for things like "clampmap"
+    map_regex = re.compile(r'[^\r\n]*map\s+"(.*?)"')
 
     try:
         with open(file_path, 'r') as f:
@@ -852,11 +855,16 @@ def get_texture_paths():
                         ModelVars.multiple_profiles = False
 
                     ModelVars.map_key_to_use = "DFLT" if "DFLT" in ModelVars.grouped_maps else next(iter(ModelVars.grouped_maps), None)
-                    # print(f"\nGROUPED MAPS: {ModelVars.grouped_maps}")
-                    print(f"MAP KEY TO USE: {ModelVars.map_key_to_use}\n")
+                    print(f"Available MDA Profiles: {ModelVars.grouped_maps}")
+                    print(f"Using MDA Profile: {ModelVars.map_key_to_use}\n")
 
                     if ModelVars.map_key_to_use and ModelVars.map_key_to_use in ModelVars.grouped_maps:
                         texture_list_for_key = ModelVars.grouped_maps[ModelVars.map_key_to_use]
+
+                        if len(texture_list_for_key) == 0:
+                            print(f"❌ Failure getting path from MDA file in profile: {ModelVars.map_key_to_use}")
+                            break
+
                         # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
 
                         if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
