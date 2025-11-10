@@ -278,18 +278,43 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
     return None, None
 
 
-def extract_file_value(file_path):
+def extract_atd_value(file_path):
     """
     Extracts the value of the `file` field for the `#0 > !bitmap > file` construct from the text file.
 
     :param file_path: Path to the text file
     :return: Value of the `file` field, or None if not found
     """
+    print("\n--------------------------------NOTE-------------------------------")
+    print("ATD files specify animated textures.  The import process will simply take the first one.")
+    print("Interform ATDs blend with a palette, which is not currently implemented.  These will likely show up as static, black & white textures.")
+    print("--------------------------------------------------------------------")
+
     with open(file_path, 'r') as file:
         content = file.read()
 
+        # ATD files (Anachronox) are typically "animation" or "interform"
+        # First, we need to determine which this is
+        atd_type = ""
+        type_pattern = re.compile(r'^[ \t]*(?!#).*?\btype\b\s*=\s*(\S.*\S|\S)\s*$', re.IGNORECASE)
+
+        for lineno, line in enumerate(content.splitlines(), 1):
+            m = type_pattern.match(line)
+            if m:
+                atd_type = m.group(1).strip()
+                break
+
     # Regular expression to match the specific construct
-    pattern = r"#\s*0\s*!bitmap\s*file\s*=\s*(.+)"
+    # This works for ANIMATION type .atd
+    if atd_type == "animation":
+        print(f"ATD type detected: {atd_type}")
+        pattern = r"#\s*0\s*!bitmap\s*file\s*=\s*(.+)"
+    elif atd_type == "interform":
+        pattern = re.compile(r'^[ \t]*mother\b\s*=\s*(\S.*\S|\S)\s*$', re.IGNORECASE | re.MULTILINE)
+        print(f"ATD type detected: {atd_type}")
+    else:
+        print(f"⛔ Unrecognized ATD type: {atd_type}")
+        return ""
 
     match = re.search(pattern, content)
     if match:
@@ -904,7 +929,7 @@ def get_texture_paths():
 
             if atd_file_candidate.is_file():
                 print(f"✅ Found ATD: {atd_file_candidate}")
-                res_from_atd = extract_file_value(str(atd_file_candidate))
+                res_from_atd = extract_atd_value(str(atd_file_candidate))
                 if res_from_atd:
                     print(f"ℹ️ ATD extraction result: {res_from_atd}")
                     current_texture_search_base_str = merge_paths(current_texture_search_base_str, res_from_atd)
