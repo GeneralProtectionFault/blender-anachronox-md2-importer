@@ -1,7 +1,8 @@
 import bpy
 from dataclasses import dataclass, fields
 from typing import List
-
+import os
+from pathlib import Path
 
 
 
@@ -211,6 +212,58 @@ def get_blender_area(area_type):
             if area.type == area_type:
                 return area
     return None
+
+
+def check_path_case(path):
+    p = Path(path)
+    # Quick exact-exists check
+    try:
+        if p.exists():
+            return p
+    except OSError:
+        # In case of invalid path chars on some OSes, fall through to return original
+        return path
+
+    # If on Windows, keep drive/UNC root separate; on POSIX root is '/'
+    parts = p.parts
+    if not parts:
+        return path
+
+    # Start with root/drive (keep as-is)
+    # For Windows a Path('/C:/foo').parts -> ('C:\\', 'foo') or for 'C:\\' drive is 'C:\\'
+    root = parts[0]
+    current = Path(root)
+    built = [root]
+
+    # iterate remaining parts and try to find actual-cased child in current
+    for part in parts[1:]:
+        try:
+            entries = list(current.iterdir())
+        except (FileNotFoundError, NotADirectoryError, PermissionError, OSError):
+            # parent doesn't exist on disk -> cannot recover further
+            return path
+        # match case-insensitively using casefold for robust Unicode handling
+        target_cf = part.casefold()
+        match = None
+        for e in entries:
+            if e.name.casefold() == target_cf:
+                match = e.name
+                break
+        if match is None:
+            # no match in this directory -> cannot recover
+            return path
+        # append matched name and advance
+        built.append(match)
+        current = current / match
+
+    # Reconstruct path with OS-native separators
+    try:
+        return Path(*built)
+    except Exception as e:
+        print(e)
+        return path
+
+
 
 '''
 # TEST - The correct resulting vector is [1174, 513, 1185]

@@ -118,7 +118,6 @@ def load_triangles(triangle_bytes):
         ModelVars.triangles.append(triangle)
 
 
-
 def load_frames(frames_bytes):
     """
     Loads frames
@@ -256,14 +255,14 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
     """
     Tries to load a texture by appending supported formats to a base path (which includes the stem).
     Args:
-        base_path_for_texture_stem (Path): The base path and name of the texture 
+        base_path_for_texture_stem (Path): The base path and name of the texture
                                            (e.g., Path("textures/folder/mytexture_stem")).
         supported_formats (list of str): List of supported image extensions.
     Returns:
         tuple (Path, tuple) or (None, None): Found texture path and (width, height), or None if not found.
     """
     for fmt in supported_formats:
-        candidate_path = base_path_for_texture_stem.with_suffix(fmt)
+        candidate_path = check_path_case(base_path_for_texture_stem.with_suffix(fmt))
 
         if candidate_path.is_file():
             try:
@@ -509,13 +508,11 @@ def merge_paths(base_path, relative_path):
     if match:
         base_parts = truncate_after(base_parts, match)
 
-    
-
     if "models" in relative_parts:
         relative_parts.remove("models") # "models" appears to be a parent folder that we should replace w/ wherever files are extracted to
 
-    print(f"\nBASE PARTS: {base_parts}")
-    print(f"RELATIVE PARTS: {relative_parts}\n")
+    print(f"\nPATH BASE PARTS: {base_parts}")
+    print(f"PATH RELATIVE PARTS: {relative_parts}\n")
 
     try:
         # Find the index in the base path where the relative path starts
