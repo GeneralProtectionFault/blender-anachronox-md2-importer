@@ -43,9 +43,18 @@ class IMPORT_OT_animation_frames_modal(bpy.types.Operator):
     _created_tracks = None
 
     def _ensure_fcurve(self, action, data_path, index):
-        fcu = action.fcurves.find(data_path, index=index)
-        if fcu is None:
-            fcu = action.fcurves.new(data_path=data_path, index=index)
+        if (bpy.app.version < (4,4,0)):
+            fcu = action.fcurves.find(data_path, index=index)
+            if fcu is None:
+                fcu = action.fcurves.new(data_path=data_path, index=index)
+        else:                                   # Blender 5+
+            slot = action.slots[0]
+            strip = action.layers[0].strips[0]
+            channelbag = strip.channelbag(slot)
+            fcu = channelbag.fcurves.find(data_path, index=index)
+            if fcu is None:
+                fcu = channelbag.fcurves.new(data_path=data_path, index=index)
+
         return fcu
 
     def _insert_vertex_into_action(self, action, vert_index, co, frame):
@@ -58,7 +67,16 @@ class IMPORT_OT_animation_frames_modal(bpy.types.Operator):
         mesh = self._mesh
         if self._current_action is None:
             return
-        for fcu in self._current_action.fcurves:
+
+        if (bpy.app.version < (4,4,0)):
+            fcurves = self._current_action.fcurves
+        else:
+            slot = self._current_action.slots[0]
+            strip = self._current_action.layers[0].strips[0]
+            channelbag = strip.channelbag(slot)
+            fcurves = channelbag.fcurves
+
+        for fcu in fcurves:
             if not fcu.keyframe_points:
                 continue
             min_x = min(kp.co.x for kp in fcu.keyframe_points)
@@ -66,6 +84,7 @@ class IMPORT_OT_animation_frames_modal(bpy.types.Operator):
                 for kp in fcu.keyframe_points:
                     kp.co.x -= min_x
                 fcu.update()
+
         # clear mesh active action so mesh NLA is authoritative
         mesh.animation_data.action = None
         ad = mesh.animation_data
@@ -146,6 +165,14 @@ class IMPORT_OT_animation_frames_modal(bpy.types.Operator):
                         act_name = f"{ModelVars.object_name}_{anim_name}"
                         self._current_action = bpy.data.actions.new(name=act_name)
                         self._mesh.animation_data.action = self._current_action
+
+                        if (bpy.app.version >= (4,4,0)):
+                            self._current_action.slots.new(id_type='MESH', name=act_name)
+                            slot = self._current_action.slots[0]
+                            layer = self._current_action.layers.new("Base")
+                            strip = layer.strips.new(type='KEYFRAME')
+                            channelbag = strip.channelbag(slot, ensure=True)
+
                     else:
                         self._current_action = None
 
