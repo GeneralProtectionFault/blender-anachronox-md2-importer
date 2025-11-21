@@ -2,7 +2,7 @@
 bl_info = {
     "name": "Anachronox MD2 Model Importer",
     "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "version": (1,4,0),
+    "version": (1,4,1),
     "blender": (3,6,0),
     "location": "File > Import > Anachronox (.md2)",
     "description": "Import Anachronox variant of MD2 (Quake II) models",
@@ -135,10 +135,14 @@ class ImportMD2(bpy.types.Operator, ImportHelper):
                                         description="Clean the Blender scene of any unused data blocks including unused Materials, Textures and Names.\nYou typically want this set.",
                                         default=True)
 
+    import_animations: BoolProperty(name="Import Animations",
+                                        description="Not all models will have animations, but for those that do, this can be disabled if only the model is desired.",
+                                        default=True)
 
     def execute(self, context):
         try:
-            load_import_variables(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate, self.apply_transforms, self.recalc_normals, self.use_clean_scene)
+            load_import_variables(self.filepath, self.displayed_name, self.model_scale, self.texture_scale, self.x_rotate, self.y_rotate, self.z_rotate,
+            self.apply_transforms, self.recalc_normals, self.use_clean_scene, self.import_animations)
             blender_load_md2()
             get_texture_paths()
 

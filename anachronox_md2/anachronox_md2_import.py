@@ -957,10 +957,6 @@ def get_texture_paths():
     print(f"Skin resolution info:\n{ModelVars.skin_resolutions}")
 
 
-
-
-
-
 def get_md2_object():
     load_texture_coordinates(ModelVars.byte_list[ModelVars.header.ofs_st:ModelVars.header.ofs_tris], ModelVars.header, ModelVars.triangles, ModelVars.skin_resolutions, ModelVars.triangle_skin_dict, ImportOptions.texture_scale)
 
@@ -975,13 +971,6 @@ def get_md2_object():
         ModelVars.vertices.append(vertex_indexed(i, vert))
 
     ModelVars.my_object = md2_object(ModelVars.header, ModelVars.skin_names, ModelVars.triangles, ModelVars.frames, ModelVars.texture_coordinates, ModelVars.gl_commands, ModelVars.tsurf_dictionary, ModelVars.vertices, ModelVars.triangle_skin_dict, ModelVars.extra_data, ModelVars.texture_paths)
-
-
-
-
-
-
-
 
 
     # Gets name to give to the object and mesh in the outliner
@@ -1044,13 +1033,12 @@ def create_mesh_md2():
     # bpy.context.area.type = "NLA_EDITOR"
     # bpy.context.area.ui_type = "NLA_EDITOR"
 
-    ModelVars.animation_list = list()
-    ModelVars.current_anim_name = ""
-    frame_count = len(ModelVars.my_object.frames)
+    if ImportOptions.import_animations:
+        ModelVars.animation_list = list()
+        ModelVars.current_anim_name = ""
+        frame_count = len(ModelVars.my_object.frames)
 
-    bpy.ops.wm.import_animation_frames_modal('INVOKE_DEFAULT')
-    # bpy.ops.wm.import_animation_frames('EXEC_DEFAULT')
-
+        bpy.ops.wm.import_animation_frames_modal('INVOKE_DEFAULT')
 
     bpy.ops.wm.import_materials('EXEC_DEFAULT')
 

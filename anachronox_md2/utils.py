@@ -69,7 +69,7 @@ class md2_t:
     num_LODdata2: int                   # Float LOD data 2
     num_LODdata3: int                   # Float LOD data 3
     num_tsurf: int                      # number of Tagged Surfaces
-    ofs_tsurf: int                      # offset to Tagged surfaces 
+    ofs_tsurf: int                      # offset to Tagged surfaces
 
 
 
@@ -113,7 +113,7 @@ class md2_object:
     texture_paths: list()
 
 
-def load_import_variables(filepath, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene):
+def load_import_variables(filepath, displayed_name, model_scale, texture_scale, x_rotate, y_rotate, z_rotate, apply_transforms, recalc_normals, use_clean_scene, import_animations):
     ImportOptions.filepath = filepath
     ImportOptions.displayed_name = displayed_name
     ImportOptions.model_scale = model_scale
@@ -124,6 +124,7 @@ def load_import_variables(filepath, displayed_name, model_scale, texture_scale, 
     ImportOptions.apply_transforms = apply_transforms
     ImportOptions.recalc_normals = recalc_normals
     ImportOptions.use_clean_scene = use_clean_scene
+    ImportOptions.import_animations = import_animations
 
 
 class ModelVars(object):
@@ -176,6 +177,7 @@ class ImportOptions(object):
     apply_transforms = True
     recalc_normals = True
     use_clean_scene = True
+    import_animations = True
 
 
 # def startProgress(string):
