@@ -1,18 +1,4 @@
 
-bl_info = {
-    "name": "Anachronox MD2 Model Importer",
-    "author": "Lennart G, Alpaca, Holonet, Creaper",
-    "version": (1,4,1),
-    "blender": (3,6,0),
-    "location": "File > Import > Anachronox (.md2)",
-    "description": "Import Anachronox variant of MD2 (Quake II) models",
-    "warning": "",
-    "github_url": "https://github.com/GeneralProtectionFault/blender-anachronox-md2-importer",
-    "doc_url": ""
-    }
-
-
-
 """
 This part is required for the UI, to make the Addon appear under File > Import once it's
 activated and to have additional input fields in the file picking menu
