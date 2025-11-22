@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "anachronox_md2"
-version = "1.5.0"
+version = "2.0.0"
 name = "Anachronox MD2 Model Importer"
 tagline = "Import Anachronox (Modified Quake II format) MD2 models into Blender"
 maintainer = "GeneralProtectionFault"
