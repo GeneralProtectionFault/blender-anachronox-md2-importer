@@ -86,7 +86,7 @@ class ImportMD2(bpy.types.Operator, ImportHelper):
     # Added support to resize the model to the desired scale input at import screen
     model_scale: bpy.props.FloatProperty(name="New Model Scale",
                                         description="Desired scale for the model.\nGood for rescaling the model to fit other scale systems. I.E. .0254 is the scale for Unreal Engine.",
-                                        default=.0254)
+                                        precision=4, default=.0254)
     # Add a texture scale value.  Use this to properly calculate the UV/ST data if someone wants to use an upscaled texture
     texture_scale: bpy.props.FloatProperty(name="Texture Scale",
                                         description="Change to use upscaled textures.\nI.E. If providing 4x textures, set value to 4.",

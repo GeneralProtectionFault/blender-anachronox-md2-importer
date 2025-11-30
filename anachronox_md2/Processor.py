@@ -279,6 +279,7 @@ class ImportMaterials(bpy.types.Operator):
             mat = bpy.data.materials.new(name=material_name)
             mat.use_nodes = True
             bsdf = mat.node_tree.nodes["Principled BSDF"]
+            bsdf.location = (-200.0, 100.0)
 
             if (bpy.app.version < (4,0,0)):
                 bsdf.inputs['Specular'].default_value = 0
@@ -286,6 +287,7 @@ class ImportMaterials(bpy.types.Operator):
                 bsdf.inputs['Specular IOR Level'].default_value = 0
 
             texImage = mat.node_tree.nodes.new('ShaderNodeTexImage')
+            texImage.location = (-497, 79)
 
             # Give an error and assign a purple color if all textures are missing
             if(ModelVars.my_object.texture_paths == []):
