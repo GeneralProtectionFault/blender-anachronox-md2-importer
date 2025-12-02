@@ -1,9 +1,46 @@
 import json
-from typing import Any
+from dataclasses import dataclass, field, fields
+from typing import Any, List
 from pyparsing import (
-        Word, alphas, alphanums, QuotedString, Suppress, Group, Forward,
-        OneOrMore, ZeroOrMore, Optional, ParseException
+        Word, alphas, alphanums, QuotedString, Suppress, Group, Forward, Literal, Each,
+        OneOrMore, ZeroOrMore, Optional, ParseException, ParseResults
     )
+from pprint import pprint
+
+
+@dataclass
+class Pass:
+    map: str = ''
+    uvgen: str = ''
+    uvmod: str = ''
+    blendmode: str = ''
+    alphafunc: str = ''
+    depthwrite: bool = True
+    depthfunc: str = ''
+    cull: str = ''
+
+@dataclass
+class Skin:
+    sort: str = ''
+    passes: List[Pass] = field(default_factory=list)
+
+    def add_pass(self, new_pass: Pass):
+        if isinstance(new_pass, Pass):
+            self.passes.append(new_pass)
+        else:
+            raise TypeError("Expected an instance of Pass.")
+
+@dataclass
+class MDAProfile:
+    profile: str = ''
+    evaluate: str = ''
+    skins: List[Skin] = field(default_factory=list)
+
+    def add_skin(self, new_skin: Skin):
+        if isinstance(new_skin, Skin):
+            self.skins.append(new_skin)
+        else:
+            raise TypeError("Expected an instance of Skin.")
 
 
 def to_json(result: Any, pretty: bool = False) -> str:
@@ -14,6 +51,11 @@ def to_json(result: Any, pretty: bool = False) -> str:
     if pretty:
         return json.dumps(result, indent=2, ensure_ascii=False)
     return json.dumps(result, separators=(",", ":"), ensure_ascii=False)
+
+def unwrap_list(value):
+    while isinstance(value, (list, ParseResults)) and value:
+        value = value[0]
+    return value
 
 
 def parse_mda(filepath):
@@ -53,79 +95,145 @@ def parse_mda(filepath):
     LBRACE, RBRACE = map(Suppress, "{}")
 
     # Tokens
-    # quoted strings: QuotedString handles quotes properly and removeQuotes strips the quotes
+    # Sometimes the value is in quotes (usually the map), others, it's not, so we need to capture the value in either case
     quoted_value = QuotedString('"', escChar="\\", unquoteResults=True)
-    # unquoted values: include letters, numbers, dots, slashes, backslashes, hyphen, underscore
     unquoted_value = Word(alphanums + "._-/\\ ")
 
-    value = (quoted_value | unquoted_value)
+    quoted_or_unquoted = (quoted_value | unquoted_value)
 
-    # key and kv pair (key followed by one value on the same line)
-    key = Word(alphas)
-    kv_pair = Group(key + value)
+
 
     # pass block: multiple kv pairs inside braces
-    pass_block = Group(Suppress("pass") + LBRACE + ZeroOrMore(kv_pair) + RBRACE)
+    pass_block = Group(
+        Suppress("pass")
+        + LBRACE
+        + Group(Literal("map").suppress() + quoted_or_unquoted)("map")
+        + Each(
+            Optional(Group(Literal("uvgen").suppress() + Word(alphanums)))("uvgen")
+            & Optional(Group(Literal("uvmod").suppress() + Word(alphanums + " .-_")))("uvmod")
+            & Optional(Group(Literal("blendmode").suppress() + Word(alphanums)))("blendmode")
+            & Optional(Group(Literal("alphafunc").suppress() + Word(alphanums)))("alphafunc")
+            & Optional(Group(Literal("depthwrite").suppress() + Word(alphanums)))("depthwrite")
+            & Optional(Group(Literal("depthfunc").suppress() + Word(alphanums)))("depthfunc")
+            & Optional(Group(Literal("cull").suppress() + Word(alphanums)))("cull")
+        )
+        + RBRACE
+    )
 
     # skin block: one or more pass blocks
-    skin_block = Group(Suppress("skin") + LBRACE + OneOrMore(pass_block) + RBRACE)
+    skin_block = Group(
+        Suppress("skin")
+        + LBRACE
+        + Optional(Group(Literal("sort").suppress() + Word(alphas)))("sort")
+        + OneOrMore(pass_block)("passes")
+        + RBRACE
+    )
 
-    # profile block: 'profile' optionally followed by a token (modifier), then braces with skins
-    profile_block = Group(Suppress("profile") + Optional(Word(alphanums))("modifier") + LBRACE + OneOrMore(skin_block)("skins") + RBRACE)
+    # profile block: 'profile' optionally followed by a token (profile), then braces with skins
+    profile_block = Group(
+        Suppress("profile")
+        + Optional(Word(alphanums), default="DFLT")("profile")
+        + LBRACE
+        + Optional(Group(Literal("evaluate").suppress() + quoted_or_unquoted))("evaluate")
+        + OneOrMore(skin_block)("skins")
+        + RBRACE
+    )
 
     # top-level: surrounding braces with one or more profiles
     top = OneOrMore(profile_block)("profiles")
 
-    # helper to turn kv pairs into dict
-    def make_pass_dict(kv_tokens):
-        d = {}
-        for kv in kv_tokens:
-            k = kv[0]
-            v = kv[1]
-            d[k] = v
-        return d
-
-    # transform parse results to desired structure
-    def transform(parsed):
-        out = []
-        for prof in parsed.profiles:
-            prof_name = prof.get("modifier") or "DFLT"
-            skins = []
-            for skin in prof.skins:
-                passes = []
-                for p in skin:          # each p is a list of kv pairs
-                    passes.append(make_pass_dict(p))
-                skins.append({"passes": passes})
-            out.append({"profile": prof_name, "skins": skins})
-        return out
-
     # Parse
     try:
         parsed = top.parseString(text_to_parse, parseAll=True)
-        result = transform(parsed)
+        # result = transform(parsed)
         # print(to_json(result))
     except ParseException as pe:
         print("Parse error:", pe)
         raise
 
-    return result
+    return parsed
+
+
+def map_kv_to_instance(instance, key, value):
+    """
+    If the instance has an attribute named `key` (case-insensitive),
+    set it to `value` (as-is, no type conversion).
+    """
+    key_lower = key.lower()
+    # find matching dataclass field name (case-insensitive)
+    for f in fields(instance):
+        if f.name.lower() == key_lower:
+            setattr(instance, f.name, value)
+            return True
+    return False
+
+def parsed_to_profiles(parsed):
+    """
+    Convert parsed structure to list[MDAProfile].
+
+    parsed format:
+      [
+        ['DFLT', [[['map','...'], ['alphafunc','ge128'], ...], [...], ...]],
+        ['FLAT', [[['map','...']]]]
+      ]
+
+    Behavior:
+    - Creates an MDAProfile per top-level entry with profile name set.
+    - For each skin entry creates a Skin and for each pass entry creates a Pass.
+    - Dynamically assigns key/value pairs to attributes of Pass, Skin, and MDAProfile
+      when the attribute name exists in the corresponding dataclass (case-insensitive).
+    - Leaves missing attributes as dataclass defaults.
+    - Does NOT perform type conversions; values are assigned as strings (or as provided).
+    """
+    profiles = []
+    for profile_item in parsed:
+        if not profile_item:
+            continue
+
+        profile_name = unwrap_list(profile_item.get("profile"))
+
+        prof = MDAProfile(profile=profile_name)
+        prof.evaluate = unwrap_list(profile_item.get("evaluate"))
+
+        skins = profile_item.get("skins")
+        for skin_entry in skins:
+            # skin_entry is a list of passes (each pass is list of [key,val] pairs)
+            skin = Skin()
+            skin.sort = unwrap_list(skin_entry.get("sort"))
+            passes = skin_entry.get("passes")
+            for pass_entry in passes:
+                # print(pass_entry)
+                p = Pass()
+                # print(f"UVGEN: {unwrap_list(pass_entry.get("uvgen"))}")
+                p.map = unwrap_list(pass_entry.get("map"))
+                p.uvgen = unwrap_list(pass_entry.get("uvgen"))
+                p.uvmod = unwrap_list(pass_entry.get("uvmod"))
+                p.blendmode = unwrap_list(pass_entry.get("blendmode"))
+                p.alphafunc = unwrap_list(pass_entry.get("alphafunc"))
+                p.depthwrite = unwrap_list(pass_entry.get("depthwrite"))
+                p.depthfunc = unwrap_list(pass_entry.get("depthfunc"))
+                p.cull = unwrap_list(pass_entry.get("cull"))
+
+                # pprint(p.__dict__)
+                skin.add_pass(p)
+            prof.add_skin(skin)
+        profiles.append(prof)
+
+    return profiles
 
 
 if __name__ == "__main__":
-    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/rho/rho.mda'
+    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/rho/rho.mda'
+    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
+    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/pal/pal.mda'
+    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/democratus/democratus.mda'
+
     result = parse_mda(filepath)
 
-    # print(result)
+    print(result)
     print(len(result))
-    print(to_json(result))
+    # print(to_json(result))
 
-    selected_profile = [r for r in result if r['profile'] == "EMPTY"]
-    # print([r for r in result if r['profile'] == "EMPTY"])
-
-    maps = [p['map']
-        for profile in selected_profile
-        for skin in profile.get('skins', [])
-        for p in skin.get('passes', [])
-        if 'map' in p]
-
-    # print(isinstance(maps, list))
+    profiles = parsed_to_profiles(result)
+    for p in profiles:
+        pprint(p.__dict__)
