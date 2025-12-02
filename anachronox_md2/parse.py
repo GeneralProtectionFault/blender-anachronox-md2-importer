@@ -89,7 +89,7 @@ def parse_mda(filepath):
     def transform(parsed):
         out = []
         for prof in parsed.profiles:
-            prof_name = prof.get("modifier") or "EMPTY"
+            prof_name = prof.get("modifier") or "DFLT"
             skins = []
             for skin in prof.skins:
                 passes = []
@@ -112,7 +112,7 @@ def parse_mda(filepath):
 
 
 if __name__ == "__main__":
-    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/pal/pal.mda'
+    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/rho/rho.mda'
     result = parse_mda(filepath)
 
     # print(result)
