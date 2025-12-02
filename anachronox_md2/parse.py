@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 import json
 from dataclasses import dataclass, field, fields
 from typing import Any, List
@@ -18,6 +20,7 @@ class Pass:
     depthwrite: bool = True
     depthfunc: str = ''
     cull: str = ''
+    rgbgen: str = ''
 
 @dataclass
 class Skin:
@@ -82,11 +85,15 @@ def parse_mda(filepath):
     # (previous line)
     start_index = txt.rfind('\n', 0, line_start_index - 1) + 1
 
-    text_to_parse = txt[start_index:last_brace+1]
+    txt = txt[start_index:last_brace+1]
 
     # Add "outer" brackets, since the profiles themselves are not within brackets - This gives us a consistently formatted string
     # text_to_parse = '{' + text_to_parse + '}'
-    text_to_parse = text_to_parse.replace("\\", "/")    # Fix stupid inconsistent forward/back slashes in MDAs
+    txt = txt.replace("\\", "/")    # Fix stupid inconsistent forward/back slashes in MDAs
+
+    # Remove commented lines
+    lines = txt.splitlines()
+    text_to_parse = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
     # print(text_to_parse)
 
     #####################################################################################################################################
@@ -107,15 +114,16 @@ def parse_mda(filepath):
     pass_block = Group(
         Suppress("pass")
         + LBRACE
-        + Group(Literal("map").suppress() + quoted_or_unquoted)("map")
         + Each(
-            Optional(Group(Literal("uvgen").suppress() + Word(alphanums)))("uvgen")
+          Group((Literal("clampmap") | Literal("map")).suppress() + quoted_or_unquoted)("map")
+            & Optional(Group(Literal("uvgen").suppress() + Word(alphanums)))("uvgen")
             & Optional(Group(Literal("uvmod").suppress() + Word(alphanums + " .-_")))("uvmod")
             & Optional(Group(Literal("blendmode").suppress() + Word(alphanums)))("blendmode")
             & Optional(Group(Literal("alphafunc").suppress() + Word(alphanums)))("alphafunc")
             & Optional(Group(Literal("depthwrite").suppress() + Word(alphanums)))("depthwrite")
             & Optional(Group(Literal("depthfunc").suppress() + Word(alphanums)))("depthfunc")
             & Optional(Group(Literal("cull").suppress() + Word(alphanums)))("cull")
+            & Optional(Group(Literal("rgbgen").suppress() + Word(alphanums)))("rgbgen")
         )
         + RBRACE
     )
@@ -213,6 +221,7 @@ def parsed_to_profiles(parsed):
                 p.depthwrite = unwrap_list(pass_entry.get("depthwrite"))
                 p.depthfunc = unwrap_list(pass_entry.get("depthfunc"))
                 p.cull = unwrap_list(pass_entry.get("cull"))
+                p.rgbgen = unwrap_list(pass_entry.get("rgbgen"))
 
                 # pprint(p.__dict__)
                 skin.add_pass(p)
@@ -223,16 +232,25 @@ def parsed_to_profiles(parsed):
 
 
 if __name__ == "__main__":
-    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/rho/rho.mda'
-    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
-    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/pal/pal.mda'
-    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/democratus/democratus.mda'
+    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
 
     result = parse_mda(filepath)
 
+    # Test all MDA files
+    root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
+
+    # mda_files = sorted(root.rglob("*.mda"))
+    # for p in mda_files:
+    #     print(f"Parsing {p}")
+    #     try:
+    #         parsed = parse_mda(p)
+    #         result = parsed_to_profiles(parsed)
+    #     except Exception as e:
+    #         print(f"ERROR parsing {p}\n{e}")
+
     print(result)
     print(len(result))
-    # print(to_json(result))
+    print(to_json(result))
 
     profiles = parsed_to_profiles(result)
     for p in profiles:
