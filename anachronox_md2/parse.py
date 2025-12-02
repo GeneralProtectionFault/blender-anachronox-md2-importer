@@ -43,7 +43,7 @@ def parse_mda(filepath):
     text_to_parse = txt[start_index:last_brace+1]
 
     # Add "outer" brackets, since the profiles themselves are not within brackets - This gives us a consistently formatted string
-    text_to_parse = '{' + text_to_parse + '}'
+    # text_to_parse = '{' + text_to_parse + '}'
     text_to_parse = text_to_parse.replace("\\", "/")    # Fix stupid inconsistent forward/back slashes in MDAs
     # print(text_to_parse)
 
@@ -53,16 +53,15 @@ def parse_mda(filepath):
     LBRACE, RBRACE = map(Suppress, "{}")
 
     # Tokens
-    identifier = Word(alphas + "_", alphanums + "_")
     # quoted strings: QuotedString handles quotes properly and removeQuotes strips the quotes
     quoted_value = QuotedString('"', escChar="\\", unquoteResults=True)
     # unquoted values: include letters, numbers, dots, slashes, backslashes, hyphen, underscore
-    unquoted_value = Word(alphanums + "._-/\\")
+    unquoted_value = Word(alphanums + "._-/\\ ")
 
     value = (quoted_value | unquoted_value)
 
     # key and kv pair (key followed by one value on the same line)
-    key = Word(alphas + "_")
+    key = Word(alphas)
     kv_pair = Group(key + value)
 
     # pass block: multiple kv pairs inside braces
@@ -72,10 +71,10 @@ def parse_mda(filepath):
     skin_block = Group(Suppress("skin") + LBRACE + OneOrMore(pass_block) + RBRACE)
 
     # profile block: 'profile' optionally followed by a token (modifier), then braces with skins
-    profile_block = Group(Suppress("profile") + Optional(Word(alphanums + "_-"))("modifier") + LBRACE + OneOrMore(skin_block)("skins") + RBRACE)
+    profile_block = Group(Suppress("profile") + Optional(Word(alphanums))("modifier") + LBRACE + OneOrMore(skin_block)("skins") + RBRACE)
 
     # top-level: surrounding braces with one or more profiles
-    top = LBRACE + OneOrMore(profile_block)("profiles") + RBRACE
+    top = OneOrMore(profile_block)("profiles")
 
     # helper to turn kv pairs into dict
     def make_pass_dict(kv_tokens):
@@ -118,7 +117,7 @@ if __name__ == "__main__":
 
     # print(result)
     print(len(result))
-    # print(to_json(result))
+    print(to_json(result))
 
     selected_profile = [r for r in result if r['profile'] == "EMPTY"]
     # print([r for r in result if r['profile'] == "EMPTY"])
@@ -129,4 +128,4 @@ if __name__ == "__main__":
         for p in skin.get('passes', [])
         if 'map' in p]
 
-    print(isinstance(maps, list))
+    # print(isinstance(maps, list))
