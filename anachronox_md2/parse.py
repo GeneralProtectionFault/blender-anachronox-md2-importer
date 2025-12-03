@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass, field, fields
 from typing import Any, List
 from pyparsing import (
-        Word, alphas, alphanums, QuotedString, Suppress, Group, Forward, Literal, Each,
-        OneOrMore, ZeroOrMore, Optional, ParseException, ParseResults
+        Word, alphas, alphanums, nums, QuotedString, Suppress, Group, Forward, Literal, Each,
+        OneOrMore, ZeroOrMore, Optional, ParseException, ParseResults, pyparsing_common
     )
 from pprint import pprint
 
@@ -64,6 +64,86 @@ class MDAProfile:
             raise TypeError("Expected an instance of Skin.")
 
 
+
+
+# Basic punctuation suppressors
+LBRACE, RBRACE = map(Suppress, "{}")
+
+# Tokens
+# Sometimes the value is in quotes (usually the map), others, it's not, so we need to capture the value in either case
+quoted_value = QuotedString('"', escChar="\\", unquoteResults=True)
+unquoted_value = Word(alphanums + "._-/\\ ")
+
+quoted_or_unquoted = (quoted_value | unquoted_value)
+
+
+#########################################################################################################
+# pass block: multiple kv pairs inside braces
+mda_pass_block = Group(
+    Suppress("pass")
+    + LBRACE
+    + Each(
+        Group((Literal("clampmap") | Literal("map")).suppress() + quoted_or_unquoted)("map")
+        & Optional(Group(Literal("uvgen").suppress() + Word(alphanums)))("uvgen")
+        & Optional(Group(Literal("uvmod").suppress() + Word(alphanums + " .-_")))("uvmod")
+        & Optional(Group(Literal("blendmode").suppress() + Word(alphanums)))("blendmode")
+        & Optional(Group(Literal("alphafunc").suppress() + Word(alphanums)))("alphafunc")
+        & Optional(Group(Literal("depthwrite").suppress() + Word(alphanums)))("depthwrite")
+        & Optional(Group(Literal("depthfunc").suppress() + Word(alphanums)))("depthfunc")
+        & Optional(Group(Literal("cull").suppress() + Word(alphanums)))("cull")
+        & Optional(Group(Literal("rgbgen").suppress() + Word(alphanums)))("rgbgen")
+    )
+    + RBRACE
+)
+
+# skin block: one or more pass blocks
+mda_skin_block = Group(
+    Suppress("skin")
+    + LBRACE
+    + Optional(Group(Literal("sort").suppress() + Word(alphas)))("sort")
+    + OneOrMore(mda_pass_block)("passes")
+    + RBRACE
+)
+
+# profile block: 'profile' optionally followed by a token (profile), then braces with skins
+mda_profile_block = Group(
+    Suppress("profile")
+    + Optional(Word(alphanums), default="DFLT")("profile")
+    + LBRACE
+    + Optional(Group(Literal("evaluate").suppress() + quoted_or_unquoted))("evaluate")
+    + OneOrMore(mda_skin_block)("skins")
+    + RBRACE
+)
+
+#########################################################################################################
+
+atd_header_block = Group(
+    Suppress("ATD1") +
+    Suppress(Literal("type") + Literal("=")) + Word(alphas)("type") +
+    Suppress(Literal("colortype") + Literal("=")) + Word(nums)("colortype") +
+    Suppress(Literal("width") + Literal("=")) + Word(nums)("width") +
+    Suppress(Literal("height") + Literal("=")) + Word(nums)("height") +
+    Suppress(Literal("bilinear") + Literal("=")) + Word(nums)("bilinear")
+)
+
+atd_bitmap_block = Group(
+    Suppress(Literal("!bitmap") + Literal("file") + Literal("=")) + quoted_or_unquoted
+)
+
+atd_frame_block = Group(
+    Suppress(Literal("!frame")) +
+    Suppress(Literal("bitmap") + Literal("=")) + pyparsing_common.signed_integer("bitmap") +
+    Suppress(Literal("next") + Literal("=")) + pyparsing_common.signed_integer("next") +
+    Suppress(Literal("wait") + Literal("=")) + (pyparsing_common.signed_integer | pyparsing_common.real)("wait") +
+    Optional(Suppress(Literal("x") + Literal("=")) + pyparsing_common.signed_integer)("x") +
+    Optional(Suppress(Literal("y") + Literal("=")) + pyparsing_common.signed_integer)("y")
+)
+
+atd_block = atd_header_block + OneOrMore(atd_bitmap_block) + OneOrMore(atd_frame_block)
+
+#########################################################################################################
+
+
 def unwrap_list(value):
     while isinstance(value, (list, ParseResults)) and value:
         value = value[0]
@@ -107,57 +187,8 @@ def parse_mda(filepath):
 
     #####################################################################################################################################
 
-    # Basic punctuation suppressors
-    LBRACE, RBRACE = map(Suppress, "{}")
-
-    # Tokens
-    # Sometimes the value is in quotes (usually the map), others, it's not, so we need to capture the value in either case
-    quoted_value = QuotedString('"', escChar="\\", unquoteResults=True)
-    unquoted_value = Word(alphanums + "._-/\\ ")
-
-    quoted_or_unquoted = (quoted_value | unquoted_value)
-
-
-
-    # pass block: multiple kv pairs inside braces
-    pass_block = Group(
-        Suppress("pass")
-        + LBRACE
-        + Each(
-          Group((Literal("clampmap") | Literal("map")).suppress() + quoted_or_unquoted)("map")
-            & Optional(Group(Literal("uvgen").suppress() + Word(alphanums)))("uvgen")
-            & Optional(Group(Literal("uvmod").suppress() + Word(alphanums + " .-_")))("uvmod")
-            & Optional(Group(Literal("blendmode").suppress() + Word(alphanums)))("blendmode")
-            & Optional(Group(Literal("alphafunc").suppress() + Word(alphanums)))("alphafunc")
-            & Optional(Group(Literal("depthwrite").suppress() + Word(alphanums)))("depthwrite")
-            & Optional(Group(Literal("depthfunc").suppress() + Word(alphanums)))("depthfunc")
-            & Optional(Group(Literal("cull").suppress() + Word(alphanums)))("cull")
-            & Optional(Group(Literal("rgbgen").suppress() + Word(alphanums)))("rgbgen")
-        )
-        + RBRACE
-    )
-
-    # skin block: one or more pass blocks
-    skin_block = Group(
-        Suppress("skin")
-        + LBRACE
-        + Optional(Group(Literal("sort").suppress() + Word(alphas)))("sort")
-        + OneOrMore(pass_block)("passes")
-        + RBRACE
-    )
-
-    # profile block: 'profile' optionally followed by a token (profile), then braces with skins
-    profile_block = Group(
-        Suppress("profile")
-        + Optional(Word(alphanums), default="DFLT")("profile")
-        + LBRACE
-        + Optional(Group(Literal("evaluate").suppress() + quoted_or_unquoted))("evaluate")
-        + OneOrMore(skin_block)("skins")
-        + RBRACE
-    )
-
     # top-level: surrounding braces with one or more profiles
-    top = OneOrMore(profile_block)("profiles")
+    top = OneOrMore(mda_profile_block)("profiles")
 
     # Parse
     try:
@@ -234,10 +265,25 @@ def get_mda_profiles(filepath):
     return parsed_to_profiles(parsed)
 
 
-if __name__ == "__main__":
-    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
+def parse_atd_file(filepath):
+    with open(filepath, 'r') as f:
+        txt = f.read()
 
-    result = parse_mda(filepath)
+    txt = txt.replace("\\", "/")    # Fix stupid inconsistent forward/back slashes in MDAs
+
+    # Remove commented lines
+    lines = txt.splitlines()
+    text_to_parse = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
+
+    return atd_block.parseString(text_to_parse, parseAll=True)
+
+
+if __name__ == "__main__":
+    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
+    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/boots/skin/boots1_hurt.atd'
+
+    # result = parse_mda(filepath)
+    result = parse_atd_file(filepath)
 
     # Test all MDA files
     # root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
@@ -251,9 +297,10 @@ if __name__ == "__main__":
     #     except Exception as e:
     #         print(f"ERROR parsing {p}\n{e}")
 
+    # profiles = parsed_to_profiles(result)
+    # for p in profiles:
+    #     pprint(p.__dict__)
+
     print(result)
     print(len(result))
 
-    profiles = parsed_to_profiles(result)
-    for p in profiles:
-        pprint(p.__dict__)

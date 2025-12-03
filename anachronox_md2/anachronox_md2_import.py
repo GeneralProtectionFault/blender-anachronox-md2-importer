@@ -639,6 +639,9 @@ def get_texture_paths():
 
 
         # --- MDA Fallback ---
+        ########################## TODO:  MDA files can "coincidentally" have maps in order of the MD2 file textures
+        ##########################        This should be updated to compare the texture (map) paths to the MD2 textures, and thus also ensuring correct face mapping
+
         if ModelVars.texture_paths[skin_index] == "":
             print("❌ Unable to locate texture, trying to find associated MDA file...")
             character_folder = initial_model_dir.parent     # Hopefully...folder that contains the model, skin, etc...
@@ -656,7 +659,7 @@ def get_texture_paths():
                 ModelVars.mda_path = character_folder / Path(character_folder.name + ".mda")
 
             # Account for naming convention break by taking the closest MDA
-            # Example: detta2g_cine.md2 & dettag2_cine.mda (2 & g switched...
+            # Example: detta2g_cine.md2 & dettag2_cine.mda (2 & g switched...)
             if not ModelVars.mda_path.is_file():
                 # Get any files ending in .mda in the main character's folder
                 mda_files = [str(f) for f in character_folder.glob("**/*.mda")]
