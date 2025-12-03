@@ -3,6 +3,7 @@ from dataclasses import dataclass, fields
 from typing import List
 import os
 from pathlib import Path
+from .parse import MDAProfile
 
 
 
@@ -159,8 +160,8 @@ class ModelVars(object):
     texture_paths = []
     skin_resolutions = {}
 
-    grouped_maps = {}
-    map_key_to_use = None
+    mda_profiles = list[MDAProfile]
+    selected_profile = None
     mda_path = ""
 
     multiple_profiles = False
@@ -178,24 +179,6 @@ class ImportOptions(object):
     recalc_normals = True
     use_clean_scene = True
     import_animations = True
-
-
-# def startProgress(string):
-#     print(string)
-#     wm = bpy.context.window_manager
-#     wm.progress_begin(0, 100)
-
-# def endProgress():
-#     wm = bpy.context.window_manager
-#     wm.progress_update(100)
-#     wm.progress_end()
-
-# def showProgress(n, total, string=None):
-#     pct = (100.0*n)/total
-#     wm = bpy.context.window_manager
-#     wm.progress_update(int(pct))
-#     if string:
-#         print(string)
 
 
 def findnth(string, substring, n):

@@ -15,7 +15,6 @@ from .Processor import IMPORT_OT_animation_frames_modal, ImportMaterials
 from .utils import ModelVars
 
 
-
 def draw_progress(self, context):
     wm = context.window_manager
     percent = int(wm.progress * 100)
@@ -26,8 +25,8 @@ def draw_progress(self, context):
 # This function builds enum items at runtime.
 def get_dynamic_items(self, context):
     # Example runtime source; replace with your real dynamic list
-    source = dict(sorted(ModelVars.grouped_maps.items()))
-    items = []
+    source = [p.profile for p in ModelVars.mda_profiles]
+    items = list()
     for i, name in enumerate(source):
         # (identifier, name, description, icon, number)
         items.append((name.upper(), name.capitalize(), f"Choose {name}", "DOT", i))
@@ -54,7 +53,8 @@ class WM_OT_select_profile(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self, width=600)
 
     def execute(self, context):
-        assign_texture_paths_by_profile(self.choice)
+        ModelVars.selected_profile = [profile for profile in ModelVars.mda_profiles if profile.profile == self.choice][0]
+        assign_texture_paths_by_profile()
         get_md2_object()
         create_mesh_md2()
         return {'FINISHED'}

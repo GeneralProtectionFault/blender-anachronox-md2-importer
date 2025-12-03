@@ -39,21 +39,30 @@ class MDAProfile:
     evaluate: str = ''
     skins: List[Skin] = field(default_factory=list)
 
+    def __iter__(self):
+    # iterate over Pass objects across all skins (so comprehensions like
+    # [p.map for p in ModelVars.selected_profile] work)
+        for skin in self.skins:
+            for p in skin.passes:
+                yield p
+
+    def __len__(self):
+        # total number of Pass objects across all skins
+        return sum(len(skin.passes) for skin in self.skins)
+
+    def iter_attr(self, attr_name: str):
+        # convenience: iterate the named attribute from each Pass (skips missing/None)
+        for p in self:
+            val = getattr(p, attr_name, None)
+            if val is not None:
+                yield val
+
     def add_skin(self, new_skin: Skin):
         if isinstance(new_skin, Skin):
             self.skins.append(new_skin)
         else:
             raise TypeError("Expected an instance of Skin.")
 
-
-def to_json(result: Any, pretty: bool = False) -> str:
-    """
-    Convert parsed result (list/dicts) to a JSON string.
-    Set pretty=True for indented, human-readable output.
-    """
-    if pretty:
-        return json.dumps(result, indent=2, ensure_ascii=False)
-    return json.dumps(result, separators=(",", ":"), ensure_ascii=False)
 
 def unwrap_list(value):
     while isinstance(value, (list, ParseResults)) and value:
@@ -64,7 +73,7 @@ def unwrap_list(value):
 def parse_mda(filepath):
     # ------------------------------------------------------------------
     # 1.  Grab the whole block that starts with the first “{” and ends
-    #     with the matching “}”, but include the word that precedes the
+    #     with the matching “}”, but include the line that precedes the
     #     first “{” – that is the first key (e.g. “profile”).
     # ------------------------------------------------------------------
 
@@ -162,19 +171,6 @@ def parse_mda(filepath):
     return parsed
 
 
-def map_kv_to_instance(instance, key, value):
-    """
-    If the instance has an attribute named `key` (case-insensitive),
-    set it to `value` (as-is, no type conversion).
-    """
-    key_lower = key.lower()
-    # find matching dataclass field name (case-insensitive)
-    for f in fields(instance):
-        if f.name.lower() == key_lower:
-            setattr(instance, f.name, value)
-            return True
-    return False
-
 def parsed_to_profiles(parsed):
     """
     Convert parsed structure to list[MDAProfile].
@@ -208,11 +204,11 @@ def parsed_to_profiles(parsed):
             # skin_entry is a list of passes (each pass is list of [key,val] pairs)
             skin = Skin()
             skin.sort = unwrap_list(skin_entry.get("sort"))
+
             passes = skin_entry.get("passes")
             for pass_entry in passes:
                 # print(pass_entry)
                 p = Pass()
-                # print(f"UVGEN: {unwrap_list(pass_entry.get("uvgen"))}")
                 p.map = unwrap_list(pass_entry.get("map"))
                 p.uvgen = unwrap_list(pass_entry.get("uvgen"))
                 p.uvmod = unwrap_list(pass_entry.get("uvmod"))
@@ -231,13 +227,20 @@ def parsed_to_profiles(parsed):
     return profiles
 
 
+
+def get_mda_profiles(filepath):
+    """Main Function"""
+    parsed = parse_mda(filepath)
+    return parsed_to_profiles(parsed)
+
+
 if __name__ == "__main__":
     filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
 
     result = parse_mda(filepath)
 
     # Test all MDA files
-    root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
+    # root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
 
     # mda_files = sorted(root.rglob("*.mda"))
     # for p in mda_files:
@@ -250,7 +253,6 @@ if __name__ == "__main__":
 
     print(result)
     print(len(result))
-    print(to_json(result))
 
     profiles = parsed_to_profiles(result)
     for p in profiles:

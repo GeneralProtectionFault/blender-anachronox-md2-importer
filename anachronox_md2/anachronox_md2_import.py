@@ -19,6 +19,7 @@ import PIL
 from PIL import Image, ImagePath
 
 from .utils import *
+from .parse import get_mda_profiles, MDAProfile, Skin, Pass
 
 SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]     # Texture file formats
 
@@ -275,156 +276,6 @@ def extract_atd_value(file_path):
         return match.group(1).strip()
     return None
 
-
-def parse_material_file(file_path):
-    """
-    Reads a text file, locates all "map" element values inside the
-    structure profile -> skin -> pass, and groups them by "profile" value.
-    """
-
-    # Use defaultdict to automatically create list for new profiles
-    results = defaultdict(list)
-
-    current_profile_name = None
-
-    # Stack to keep track of block types and the brace level they opened at.
-    # Each element: (block_type_str, brace_level_opened_at)
-    # block_type_str can be 'profile', 'skin', 'pass', or 'anonymous' (for unrecognized blocks)
-    block_context_stack = [] 
-    current_brace_level = 0
-
-    # These variables help associate a keyword (like 'profile', 'skin', 'pass')
-    # with the next '{' that opens its block.
-    pending_keyword = None
-    pending_profile_name_candidate = None # Specifically for 'profile' keyword
-
-    # Regex to find 'map "some/path/here"' and capture "some/path/here"
-    # It allows for optional whitespace after "map"
-    # map_regex = re.compile(r'map\s+"(.*?)"')
-
-    # Alternate regex allows charcters before "map", for things like "clampmap"
-    map_regex = re.compile(r'[^\r\n]*map\s+"(.*?)"')
-
-    try:
-        with open(file_path, 'r') as f:
-            spike = False
-            for line_num, raw_line in enumerate(f, 1):
-                line = raw_line.strip()
-
-                if not line or line.startswith("//"): # Skip empty lines and C-style comments
-                    continue
-
-                # 1. Check for keywords that define blocks we care about.
-                # These set a "pending" state, waiting for a '{'.
-                if line.startswith("profile"):
-                    parts = line.split()
-                    if len(parts) > 1:
-                        pending_keyword = "profile"
-                        pending_profile_name_candidate = parts[1]
-                    else: # Malformed profile line
-                        pending_keyword = "profile" 
-                        pending_profile_name_candidate = "EMPTY"
-                elif line.startswith("skin"):
-                    # Only consider 'skin' if we are inside a profile context,
-                    # or if it's a pending keyword to be validated when '{' appears.
-                    pending_keyword = "skin"
-                elif line.startswith("pass"):
-                    # Similar logic for 'pass', needs to be in a 'skin' context.
-                    pending_keyword = "pass"
-
-                # 2. Check for "map" lines.
-                # This must be within the specific hierarchy: profile -> skin -> pass.
-                # The regex match is done here, independent of whether this line also opens/closes a block.
-                map_match = map_regex.match(line) # Use match() as 'map' should be at the start
-                if map_match:
-                    if current_profile_name and len(block_context_stack) >= 2:
-                        # Check context: top of stack should be 'pass', one below should be 'skin'.
-                        # The 'profile' context is confirmed by 'current_profile_name' being set.
-                        if block_context_stack[-1][0] == 'pass' and \
-                           block_context_stack[-2][0] == 'skin':
-                            map_value = map_match.group(1)
-
-                            # Some MDAs use forward slashes, some use back slashes :-| :-| :-|...
-                            map_value = map_value.replace('\\','/')
-
-                            # print(f"MAP VALUE ------------- {map_value}")
-                            results[current_profile_name].append(map_value)
-                            spike = True
-
-                # 3. Handle block opening '{'.
-                # This can be on its own line or at the end of a keyword line (e.g., "skin {").
-                if line.endswith("{"):
-                    block_opened_this_line = True # Flag that a block was opened
-                    # Use the pending_keyword (if any) to identify the block type.
-                    if pending_keyword == "profile":
-                        current_profile_name = pending_profile_name_candidate
-                        # Ensure the list for this profile exists
-                        if current_profile_name not in results:
-                             results[current_profile_name] = []
-                        block_context_stack.append(("profile", current_brace_level))
-                    elif pending_keyword == "skin":
-                        # Skin must be within an active profile block or its descendant
-                        if current_profile_name: 
-                            block_context_stack.append(("skin", current_brace_level))
-                            spike = False
-                        else: # Skin outside profile, treat as anonymous or ignore
-                            block_context_stack.append(("anonymous", current_brace_level))
-                    elif pending_keyword == "pass":
-                        # Pass must be within an active skin block
-                        if current_profile_name and block_context_stack and \
-                           block_context_stack[-1][0] == 'skin' and not spike:
-                            block_context_stack.append(("pass", current_brace_level))
-                        else: # Pass outside skin, treat as anonymous or ignore
-                            block_context_stack.append(("anonymous", current_brace_level))
-                    elif pending_keyword is None and line == "{": 
-                        # An opening brace not preceded by a tracked keyword: anonymous block
-                        block_context_stack.append(("anonymous", current_brace_level))
-                    # else: A keyword was pending but the line was e.g. "keyword {" and keyword wasn't tracked
-                    #       This case is covered by the above, or it's an anonymous block if pending_keyword was None.
-
-                    current_brace_level += 1
-                    pending_keyword = None # The '{' has consumed the pending keyword
-                    pending_profile_name_candidate = None
-
-                # 4. Handle block closing '}'.
-                elif line == "}":
-                    if current_brace_level > 0: # Ensure we don't go negative
-                        current_brace_level -= 1
-                    else:
-                        # This indicates a syntax error (more '}' than '{')
-                        # print(f"Warning: Unmatched '}}' at line {line_num_val} in {file_path}")
-                        pass # Or raise error
-
-                    if block_context_stack and block_context_stack[-1][1] == current_brace_level:
-                        # This '}' closes the block at the top of the stack
-                        closed_block_type, _ = block_context_stack.pop()
-                        if closed_block_type == "profile":
-                            current_profile_name = None # Exited current profile's scope
-                    # else: Mismatched brace or closing an untracked anonymous block.
-
-                    pending_keyword = None # A '}' also clears any pending keyword expectation.
-                    pending_profile_name_candidate = None
-
-                # 5. If a line is not a keyword starter we track, and not a brace,
-                #    and didn't open a block this line, it might be an inner statement
-                #    like 'sort blend'. Such lines should not clear a pending_keyword
-                #    if it was set by a *previous* line and waiting for a '{' on a *future* line.
-                #    The logic already handles this: pending_keyword is only cleared by
-                #    '{', '}', or being overwritten by another profile/skin/pass keyword.
-                #
-                #    If a line *was* a keyword starter (e.g. "skin") but did *not* end with "{",
-                #    pending_keyword remains set, waiting for a "{" on a subsequent line.
-                #    If the line *was not* a keyword starter, and did not end with "{",
-                #    pending_keyword from a previous line (if any) persists.
-
-    except FileNotFoundError:
-        print(f"Error: File not found at {file_path}")
-        return None
-    except Exception as e:
-        print(f"An error occurred during parsing: {e} (line {line_num})")
-        return None
-
-    return dict(results) # Convert defaultdict to dict for cleaner output if preferred
 
 
 def truncate_after(lst, marker):
@@ -697,12 +548,13 @@ def blender_load_md2():
     ModelVars.triangle_skin_dict = load_triangle_gl_list(ModelVars.gl_commands, ModelVars.triangles, ModelVars.extra_data)
 
 
-def assign_texture_paths_by_profile(map_key_to_use):
+def assign_texture_paths_by_profile():
     model_file_path_obj = Path(ImportOptions.filepath)
     initial_model_dir = model_file_path_obj.parent
 
     for skin_index, skin_name_raw in enumerate(ModelVars.skin_names):
-        texture_list_for_key = ModelVars.grouped_maps[map_key_to_use]
+        # texture_list_for_key = ModelVars.grouped_maps[selected_profile]
+        texture_list_for_key = [p.map for skin in ModelVars.selected_profile.skins for p in skin.passes]
         # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
 
         if isinstance(texture_list_for_key, list) and 0 <= skin_index < len(texture_list_for_key):
@@ -728,9 +580,9 @@ def assign_texture_paths_by_profile(map_key_to_use):
 def get_texture_paths():
     ModelVars.texture_paths = {}
     ModelVars.skin_resolutions = {}
-    ModelVars.grouped_maps = {}
+    ModelVars.mda_profiles = list[MDAProfile]
     ModelVars.multiple_profiles = False
-    ModelVars.map_key_to_use = None
+    ModelVars.selected_profile = None
     ModelVars.mda_path = ""
 
     print("***TEXTURES***")
@@ -822,24 +674,31 @@ def get_texture_paths():
 
             if ModelVars.mda_path.is_file():
                 print(f"✅ Found MDA: {ModelVars.mda_path}")
-                ModelVars.grouped_maps = parse_material_file(str(ModelVars.mda_path))
+                ModelVars.mda_profiles = get_mda_profiles(str(ModelVars.mda_path))
 
                 mda_texture_rel_path_str = None
-                if ModelVars.grouped_maps:
-                    if len(ModelVars.grouped_maps) > 1:
+                if ModelVars.mda_profiles:
+                    if len(ModelVars.mda_profiles) > 1:
                         ModelVars.multiple_profiles = True
                     else:
                         ModelVars.multiple_profiles = False
 
-                    ModelVars.map_key_to_use = "DFLT" if "DFLT" in ModelVars.grouped_maps else next(iter(ModelVars.grouped_maps), None)
-                    print(f"Available MDA Profiles: {ModelVars.grouped_maps}")
-                    print(f"Using MDA Profile: {ModelVars.map_key_to_use}\n")
+                    # ModelVars.selected_profile = "DFLT" if "DFLT" in ModelVars.grouped_maps else next(iter(ModelVars.grouped_maps), None)
+                    dflt_profile = [profile for profile in ModelVars.mda_profiles if profile.profile == "DFLT"]
+                    if len(dflt_profile) > 0:
+                        ModelVars.selected_profile = dflt_profile[0]
+                    else:
+                        ModelVars.selected_profile = ModelVars.mda_profiles[0]
 
-                    if ModelVars.map_key_to_use and ModelVars.map_key_to_use in ModelVars.grouped_maps:
-                        texture_list_for_key = ModelVars.grouped_maps[ModelVars.map_key_to_use]
+                    print(f"Available MDA Profiles: {[profile.profile for profile in ModelVars.mda_profiles]}")
+                    print(f"Using MDA Profile: {ModelVars.selected_profile}\n")
+
+                    if ModelVars.selected_profile and ModelVars.selected_profile in ModelVars.mda_profiles:
+                        # texture_list_for_key = ModelVars.grouped_maps[ModelVars.selected_profile]
+                        texture_list_for_key = [p.map for skin in ModelVars.selected_profile.skins for p in skin.passes]
 
                         if len(texture_list_for_key) == 0:
-                            print(f"❌ Failure getting path from MDA file in profile: {ModelVars.map_key_to_use}")
+                            print(f"❌ Failure getting path from MDA file in profile: {texture_list_for_key[skin_index]}")
                             break
 
                         # print(f"TEXTURE LIST FOR KEY: {texture_list_for_key}")
@@ -848,7 +707,7 @@ def get_texture_paths():
                             mda_texture_rel_path_str = texture_list_for_key[skin_index]
                         else:
                             mda_texture_rel_path_str = texture_list_for_key[0]
-                            print(f"⛔ Warning: Skin index {skin_index} out of bounds or invalid format for key '{ModelVars.map_key_to_use}' in MDA maps.")
+                            print(f"⛔ Warning: Skin index {skin_index} out of bounds or invalid format for key in MDA maps.")
                             print("⛔ Using first texture anyway (Models like Rictus refer to the same texture twice) ⛔")
                     else:
                         print("⛔ Warning: No suitable key ('DFLT' or first key) found in MDA maps or map is empty.")
