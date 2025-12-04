@@ -65,6 +65,29 @@ class MDAProfile:
 
 
 
+@dataclass
+class bitmap:
+    file: str = ''
+
+@dataclass
+class frame:
+    bitmap: int = None
+    next: int = None
+    wait: float = None
+    x: int = None
+    y: int = None
+
+@dataclass
+class ATD:
+    type: str = ''
+    colortype: int = None
+    width: int = None
+    height: int = None
+    bilinear: int = None
+    bitmaps: List[bitmap] = field(default_factory=list)
+    frames: List[frame] = field(default_factory=list)
+
+
 
 # Basic punctuation suppressors
 LBRACE, RBRACE = map(Suppress, "{}")
@@ -124,20 +147,20 @@ atd_header_block = Group(
     Suppress(Literal("width") + Literal("=")) + Word(nums)("width") +
     Suppress(Literal("height") + Literal("=")) + Word(nums)("height") +
     Suppress(Literal("bilinear") + Literal("=")) + Word(nums)("bilinear")
-)
+)("header")
 
 atd_bitmap_block = Group(
-    Suppress(Literal("!bitmap") + Literal("file") + Literal("=")) + quoted_or_unquoted
-)
+    (Suppress(Literal("!bitmap") + Literal("file") + Literal("=")) + quoted_or_unquoted)("file")
+)("bitmaps*")
 
 atd_frame_block = Group(
     Suppress(Literal("!frame")) +
-    Suppress(Literal("bitmap") + Literal("=")) + pyparsing_common.signed_integer("bitmap") +
-    Suppress(Literal("next") + Literal("=")) + pyparsing_common.signed_integer("next") +
-    Suppress(Literal("wait") + Literal("=")) + (pyparsing_common.signed_integer | pyparsing_common.real)("wait") +
-    Optional(Suppress(Literal("x") + Literal("=")) + pyparsing_common.signed_integer)("x") +
-    Optional(Suppress(Literal("y") + Literal("=")) + pyparsing_common.signed_integer)("y")
-)
+    Group(Suppress(Literal("bitmap") + Literal("=")) + pyparsing_common.signed_integer)("bitmap") +
+    Group(Suppress(Literal("next") + Literal("=")) + pyparsing_common.signed_integer)("next") +
+    Group(Suppress(Literal("wait") + Literal("=")) + (pyparsing_common.signed_integer | pyparsing_common.real))("wait") +
+    Optional(Group(Suppress(Literal("x") + Literal("=")) + pyparsing_common.signed_integer))("x") +
+    Optional(Group(Suppress(Literal("y") + Literal("=")) + pyparsing_common.signed_integer))("y")
+)("frames*")
 
 atd_block = atd_header_block + OneOrMore(atd_bitmap_block) + OneOrMore(atd_frame_block)
 
@@ -260,7 +283,7 @@ def parsed_to_profiles(parsed):
 
 
 def get_mda_profiles(filepath):
-    """Main Function"""
+    """Main Function for MDA"""
     parsed = parse_mda(filepath)
     return parsed_to_profiles(parsed)
 
@@ -278,12 +301,45 @@ def parse_atd_file(filepath):
     return atd_block.parseString(text_to_parse, parseAll=True)
 
 
+def get_atd(filepath):
+    """Main function for ATD"""
+    result = parse_atd_file(filepath)
+    header = result.get("header")
+
+    atd = ATD()
+    atd.type = unwrap_list(header.get("type"))
+    atd.colortype = unwrap_list(header.get("colortype"))
+    atd.width = unwrap_list(header.get("width"))
+    atd.height = unwrap_list(header.get("height"))
+    atd.bilinear = unwrap_list(header.get("bilinear"))
+
+    for b in result.get("bitmaps"):
+        atd.bitmaps.append(bitmap(
+            file = unwrap_list(b)
+        ))
+
+    frames = result.get("frames")
+    f_test = frames[0]
+    for f in result.get("frames"):
+        atd.frames.append(frame(
+            bitmap = unwrap_list(f.get("bitmap")),
+            next = unwrap_list(f.get("next")),
+            wait = unwrap_list(f.get("wait")),
+            x = unwrap_list(f.get("x")),
+            y = unwrap_list(f.get("y"))
+        ))
+
+    # print(result.dump())
+    # quit()
+    return atd
+
+
 if __name__ == "__main__":
     # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
     filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/boots/skin/boots1_hurt.atd'
 
     # result = parse_mda(filepath)
-    result = parse_atd_file(filepath)
+    result = get_atd(filepath)
 
     # Test all MDA files
     # root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
@@ -301,6 +357,6 @@ if __name__ == "__main__":
     # for p in profiles:
     #     pprint(p.__dict__)
 
-    print(result)
-    print(len(result))
+    pprint(result)
+    # print(len(result))
 
