@@ -80,13 +80,27 @@ class frame:
 @dataclass
 class ATD:
     type: str = ''
-    colortype: int = None
     width: int = None
     height: int = None
+
+    clamp: int = None
+
+    # animation ATD fields
+    colortype: int = None
     bilinear: int = None
     bitmaps: List[bitmap] = field(default_factory=list)
     frames: List[frame] = field(default_factory=list)
 
+    # interform ATD fields
+    mother: str = ''
+    mother_move: str = ''
+    mother_vx: float = None
+    mother_vy: float = None
+    father: str = ''
+    father_move: str = ''
+    father_vx: float = None
+    father_vy: float = None
+    palette: str = ''
 
 
 # Basic punctuation suppressors
@@ -140,29 +154,57 @@ mda_profile_block = Group(
 
 #########################################################################################################
 
-atd_header_block = Group(
+atd_type_block = Group(
     Suppress("ATD1") +
-    Suppress(Literal("type") + Literal("=")) + Word(alphas)("type") +
-    Suppress(Literal("colortype") + Literal("=")) + Word(nums)("colortype") +
-    Suppress(Literal("width") + Literal("=")) + Word(nums)("width") +
-    Suppress(Literal("height") + Literal("=")) + Word(nums)("height") +
-    Suppress(Literal("bilinear") + Literal("=")) + Word(nums)("bilinear")
+    Suppress(Literal("type") + Literal("=")) + Word(alphas)("type")
+)
+
+atd_animation_header_block = Group(
+    Each(
+        Group(Suppress("ATD1") &
+        Suppress(Literal("type") + Literal("=")) + Word(alphas))("type") &
+        Suppress(Literal("colortype") + Literal("=")) + Word(nums)("colortype") &
+        Suppress(Literal("width") + Literal("=")) + Word(nums)("width") &
+        Suppress(Literal("height") + Literal("=")) + Word(nums)("height") &
+        Optional(Suppress(Literal("bilinear") + Literal("=")) + Word(nums))("bilinear") &
+        Optional(Suppress(Literal("clamp") + Literal("=")) + Word(nums))("clamp")
+    )
 )("header")
 
-atd_bitmap_block = Group(
+atd_animation_bitmap_block = Group(
     (Suppress(Literal("!bitmap") + Literal("file") + Literal("=")) + quoted_or_unquoted)("file")
 )("bitmaps*")
 
-atd_frame_block = Group(
+atd_animation_frame_block = Group(
     Suppress(Literal("!frame")) +
-    Group(Suppress(Literal("bitmap") + Literal("=")) + pyparsing_common.signed_integer)("bitmap") +
-    Group(Suppress(Literal("next") + Literal("=")) + pyparsing_common.signed_integer)("next") +
-    Group(Suppress(Literal("wait") + Literal("=")) + (pyparsing_common.signed_integer | pyparsing_common.real))("wait") +
-    Optional(Group(Suppress(Literal("x") + Literal("=")) + pyparsing_common.signed_integer))("x") +
-    Optional(Group(Suppress(Literal("y") + Literal("=")) + pyparsing_common.signed_integer))("y")
+    Each(
+        Group(Suppress(Literal("bitmap") + Literal("=")) + pyparsing_common.signed_integer)("bitmap") &
+        Optional(Group(Suppress(Literal("next") + Literal("=")) + pyparsing_common.number))("next") &
+        Optional(Group(Suppress(Literal("wait") + Literal("=")) + pyparsing_common.number))("wait") &
+        Optional(Group(Suppress(Literal("x") + Literal("=")) + pyparsing_common.signed_integer))("x") &
+        Optional(Group(Suppress(Literal("y") + Literal("=")) + pyparsing_common.signed_integer))("y")
+    )
 )("frames*")
 
-atd_block = atd_header_block + OneOrMore(atd_bitmap_block) + OneOrMore(atd_frame_block)
+
+# -------------------------------------------------------------------------------------------------------
+
+atd_interform_block = Group(
+    Group(Suppress("ATD1") +
+    Suppress(Literal("type") + Literal("=")) + Word(alphas))("type") +
+    Suppress(Literal("width") + Literal("=")) + Word(nums)("width") +
+    Suppress(Literal("height") + Literal("=")) + Word(nums)("height") +
+    Optional(Suppress(Literal("mother") + Literal("=")) + quoted_or_unquoted)("mother") +
+    Optional(Suppress(Literal("mother_move") + Literal("=")) + Word(alphas))("mother_move") +
+    Optional(Suppress(Literal("mother_vx") + Literal("=")) + pyparsing_common.number)("mother_vx") +
+    Optional(Suppress(Literal("mother_vy") + Literal("=")) + pyparsing_common.number)("mother_vy") +
+    Optional(Suppress(Literal("father") + Literal("=")) + quoted_or_unquoted)("father") +
+    Optional(Suppress(Literal("father_move") + Literal("=")) + Word(alphas))("father_move") +
+    Optional(Suppress(Literal("father_vx") + Literal("=")) + pyparsing_common.number)("father_vx") +
+    Optional(Suppress(Literal("father_vy") + Literal("=")) + pyparsing_common.number)("father_vy") +
+    Optional(Suppress(Literal("palette") + Literal("=")) + quoted_or_unquoted)("palette")
+)("header")
+
 
 #########################################################################################################
 
@@ -298,51 +340,77 @@ def parse_atd_file(filepath):
     lines = txt.splitlines()
     text_to_parse = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
 
-    return atd_block.parseString(text_to_parse, parseAll=True)
+    atd_type = unwrap_list(atd_type_block.parseString(text_to_parse))
+
+    print(f"ATD TYPE: {atd_type}")
+    if atd_type == "animation":
+        atd_block = atd_animation_header_block + OneOrMore(atd_animation_bitmap_block) + OneOrMore(atd_animation_frame_block)
+    elif atd_type == "interform":
+        atd_block = atd_interform_block
+    else:
+        print("ERROR: Unrecognized ATD file type!")
+        raise
+
+    return atd_block.parseString(text_to_parse), atd_type
 
 
 def get_atd(filepath):
     """Main function for ATD"""
-    result = parse_atd_file(filepath)
+    result, atd_type = parse_atd_file(filepath)
     header = result.get("header")
 
     atd = ATD()
     atd.type = unwrap_list(header.get("type"))
-    atd.colortype = unwrap_list(header.get("colortype"))
     atd.width = unwrap_list(header.get("width"))
     atd.height = unwrap_list(header.get("height"))
+    atd.clamp = unwrap_list(header.get("clamp"))
+
+    # Animation ATDs
+    atd.colortype = unwrap_list(header.get("colortype"))
     atd.bilinear = unwrap_list(header.get("bilinear"))
 
-    for b in result.get("bitmaps"):
-        atd.bitmaps.append(bitmap(
-            file = unwrap_list(b)
-        ))
+    # Interform ATDs
+    atd.mother = unwrap_list(header.get("mother"))
+    atd.mother_move = unwrap_list(header.get("mother_move"))
+    atd.mother_vx = unwrap_list(header.get("mother_vx"))
+    atd.mother_vy = unwrap_list(header.get("mother_vy"))
 
-    frames = result.get("frames")
-    f_test = frames[0]
-    for f in result.get("frames"):
-        atd.frames.append(frame(
-            bitmap = unwrap_list(f.get("bitmap")),
-            next = unwrap_list(f.get("next")),
-            wait = unwrap_list(f.get("wait")),
-            x = unwrap_list(f.get("x")),
-            y = unwrap_list(f.get("y"))
-        ))
+    atd.father = unwrap_list(header.get("father"))
+    atd.father_move = unwrap_list(header.get("father_move"))
+    atd.father_vx = unwrap_list(header.get("father_vx"))
+    atd.father_vy = unwrap_list(header.get("father_vy"))
+
+    atd.palette = unwrap_list(header.get("palette"))
+
+    if atd_type == "animation":
+        for b in result.get("bitmaps"):
+            atd.bitmaps.append(bitmap(
+                file = unwrap_list(b)
+            ))
+
+        for f in result.get("frames"):
+            atd.frames.append(frame(
+                bitmap = unwrap_list(f.get("bitmap")),
+                next = unwrap_list(f.get("next")),
+                wait = unwrap_list(f.get("wait")),
+                x = unwrap_list(f.get("x")),
+                y = unwrap_list(f.get("y"))
+            ))
 
     # print(result.dump())
-    # quit()
     return atd
 
 
 if __name__ == "__main__":
     # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/grumpos/grumpos.mda'
-    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/boots/skin/boots1_hurt.atd'
+    # filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/newface/boots/skin/boots1_hurt.atd'
+    filepath = '/home/q/ART/Anachronox/MD2_ModelsExtracted/objects/automa2.atd'
 
     # result = parse_mda(filepath)
     result = get_atd(filepath)
 
     # Test all MDA files
-    # root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
+    root = Path("/home/q/ART/Anachronox/MD2_ModelsExtracted")
 
     # mda_files = sorted(root.rglob("*.mda"))
     # for p in mda_files:
@@ -356,6 +424,19 @@ if __name__ == "__main__":
     # profiles = parsed_to_profiles(result)
     # for p in profiles:
     #     pprint(p.__dict__)
+
+
+    # Test all ATD files
+    # atd_files = sorted(root.rglob("*.atd"))
+    # for a in atd_files:
+    #     # if not 'flashback_boots' in str(a):
+    #     #     continue
+    #     print(f"Parsing {a}")
+    #     try:
+    #         result = get_atd(a)
+    #     except Exception as e:
+    #         print(f"ERROR parsing {a}\n{e}")
+
 
     pprint(result)
     # print(len(result))

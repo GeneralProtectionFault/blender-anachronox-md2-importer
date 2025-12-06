@@ -19,7 +19,7 @@ import PIL
 from PIL import Image, ImagePath
 
 from .utils import *
-from .parse import get_mda_profiles, MDAProfile, Skin, Pass
+from .parse import get_mda_profiles, MDAProfile, Skin, Pass, get_atd
 
 SUPPORTED_IMAGE_FORMATS = [".png", ".jpg", ".jpeg", ".bmp", ".pcx", ".tga"]     # Texture file formats
 
