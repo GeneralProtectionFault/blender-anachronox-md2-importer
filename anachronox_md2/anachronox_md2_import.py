@@ -233,51 +233,6 @@ def _try_load_texture_from_base(base_path_for_texture_stem: Path, supported_form
     return None, None
 
 
-def extract_atd_value(file_path):
-    """
-    Extracts the value of the `file` field for the `#0 > !bitmap > file` construct from the text file.
-
-    :param file_path: Path to the text file
-    :return: Value of the `file` field, or None if not found
-    """
-    print("\n--------------------------------NOTE-------------------------------")
-    print("ATD files specify animated textures.  The import process will simply take the first one.")
-    print("Interform ATDs blend with a palette, which is not currently implemented.  These will likely show up as static, black & white textures.")
-    print("--------------------------------------------------------------------")
-
-    with open(file_path, 'r') as file:
-        content = file.read()
-
-        # ATD files (Anachronox) are typically "animation" or "interform"
-        # First, we need to determine which this is
-        atd_type = ""
-        type_pattern = re.compile(r'^[ \t]*(?!#).*?\btype\b\s*=\s*(\S.*\S|\S)\s*$', re.IGNORECASE)
-
-        for lineno, line in enumerate(content.splitlines(), 1):
-            m = type_pattern.match(line)
-            if m:
-                atd_type = m.group(1).strip()
-                break
-
-    # Regular expression to match the specific construct
-    # This works for ANIMATION type .atd
-    if atd_type == "animation":
-        print(f"ATD type detected: {atd_type}")
-        pattern = r"#\s*0\s*!bitmap\s*file\s*=\s*(.+)"
-    elif atd_type == "interform":
-        pattern = re.compile(r'^[ \t]*mother\b\s*=\s*(\S.*\S|\S)\s*$', re.IGNORECASE | re.MULTILINE)
-        print(f"ATD type detected: {atd_type}")
-    else:
-        print(f"⛔ Unrecognized ATD type: {atd_type}")
-        return ""
-
-    match = re.search(pattern, content)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-
 def truncate_after(lst, marker):
     if marker in lst:
         return lst[:lst.index(marker)]
@@ -299,11 +254,11 @@ def merge_paths(base_path, relative_path):
 
     # Normalize paths to handle different formats and separators
     base_parts = os.path.normpath(base_path).split(os.sep)
-    relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep) 
+    relative_parts = os.path.normpath(relative_path).lstrip(os.sep).split(os.sep)
 
     # We need this to be the "models" directory, as referred to in the MDA files, etc...
     # Problem is, people could have extraced these anywhere, so the "models" folder needs to be whatever the main folder MODELS.DAT content was extracted to
-    # Ergo, we'll try to accomodate all the folder possibilities here... 
+    # Ergo, we'll try to accomodate all the folder possibilities here...
 
     # All 1st-level folders
     folders_known_in_main_extracted_location = ['background','boots','cine','cube2','cursor','democratus','fatima','fx','grumpos','grumpos2x', \
@@ -743,10 +698,20 @@ def get_texture_paths():
 
             if atd_file_candidate.is_file():
                 print(f"✅ Found ATD: {atd_file_candidate}")
-                res_from_atd = extract_atd_value(str(atd_file_candidate))
-                if res_from_atd:
-                    print(f"ℹ️ ATD extraction result: {res_from_atd}")
-                    current_texture_search_base_str = merge_paths(current_texture_search_base_str, res_from_atd)
+                print("\n--------------------------------NOTE-------------------------------")
+                print("ATD files specify animated textures.  The import process will simply take the first one.")
+                print("Interform ATDs blend with a palette, which is not currently implemented.  These will likely show up as static, black & white textures.")
+                print("--------------------------------------------------------------------")
+
+                atd_object = get_atd(str(atd_file_candidate))
+                if atd_object:
+                    if atd_object.type == "animation":
+                        atd_path = atd_object.bitmaps[0]        # Take the first of the animation textures
+                    elif atd_object.type == "interform":
+                        atd_path = atd_object.mother            # Temporary solution - simply use the "mother" texture as...well, the texture...
+                    print(f"ℹ️ ATD extraction result: {atd_path}")
+
+                    current_texture_search_base_str = merge_paths(current_texture_search_base_str, atd_path)
                     print(f"ℹ️ Path after ATD merge: {current_texture_search_base_str}")
 
                     atd_derived_tex_base = Path(current_texture_search_base_str)
@@ -826,7 +791,7 @@ def create_mesh_md2():
     bpy.context.view_layer.objects.active = ModelVars.obj
 
     # Creates mesh by taking first frame's vertices and connects them via indices in tris
-    ModelVars.mesh.from_pydata(ModelVars.all_verts[0], [], tris) 
+    ModelVars.mesh.from_pydata(ModelVars.all_verts[0], [], tris)
 
     """ UV Mapping: Create UV Layer, assign UV coordinates from md2 files for each face to each face's vertices """
     uv_layer=(ModelVars.mesh.uv_layers.new())

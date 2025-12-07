@@ -360,9 +360,9 @@ def get_atd(filepath):
     header = result.get("header")
 
     atd = ATD()
-    atd.type = unwrap_list(header.get("type"))
-    atd.width = unwrap_list(header.get("width"))
-    atd.height = unwrap_list(header.get("height"))
+    atd.type = unwrap_list(header.get("type"))                  # animation or interform
+    atd.width = unwrap_list(header.get("width"))                # 2^n output width, default=1
+    atd.height = unwrap_list(header.get("height"))              # 2^n output height, default=1
     atd.clamp = unwrap_list(header.get("clamp"))
 
     # Animation ATDs
@@ -370,17 +370,17 @@ def get_atd(filepath):
     atd.bilinear = unwrap_list(header.get("bilinear"))
 
     # Interform ATDs
-    atd.mother = unwrap_list(header.get("mother"))
-    atd.mother_move = unwrap_list(header.get("mother_move"))
-    atd.mother_vx = unwrap_list(header.get("mother_vx"))
+    atd.mother = unwrap_list(header.get("mother"))              # mother parent 8-bit PNG
+    atd.mother_move = unwrap_list(header.get("mother_move"))    # movetype
+    atd.mother_vx = unwrap_list(header.get("mother_vx"))        # coord/sec | mother x velocity
     atd.mother_vy = unwrap_list(header.get("mother_vy"))
 
-    atd.father = unwrap_list(header.get("father"))
+    atd.father = unwrap_list(header.get("father"))              # father parent 8-bit PNG
     atd.father_move = unwrap_list(header.get("father_move"))
     atd.father_vx = unwrap_list(header.get("father_vx"))
     atd.father_vy = unwrap_list(header.get("father_vy"))
 
-    atd.palette = unwrap_list(header.get("palette"))
+    atd.palette = unwrap_list(header.get("palette"))            # palette truecolor PNG
 
     if atd_type == "animation":
         for b in result.get("bitmaps"):
