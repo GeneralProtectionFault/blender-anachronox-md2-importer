@@ -431,7 +431,6 @@ def blender_load_md2():
     # If .md2 is missing print an error on screen. This tends to happen if you select an .md2 to load then select another directory path and then select import.
     if not os.path.isfile(ImportOptions.filepath):
         bpy.context.window_manager.popup_menu(missing_file, title="Error", icon='ERROR')
-        # endProgress()
         return
 
     # First lets clean up our scene
