@@ -15,7 +15,7 @@ this could simply be due to a quirk of how open gl would actually load the model
 
 UPDATE:  The plugin now manually handles 2 vertex UV coordinates (vertex 9 & 289) and largely corrects this problem with the exception of a slight seam visible.
 
-When importing Democratus, the texture color comes in inverted.  Bizarre, as opening the texture file directly seems to work fine.  Easy to fix, but noted as "strange."
+When importing Democratus, the texture color comes in inverted.  I believe this is because the addon does not (yet, at least) attempt to reproduce all the texture blending behavior that the MDA and ATD models support, and Democratus has that cloud layer.  I think this is an artifact of just such a layered texture.  Inverting the color can give a reasonable represenation at present.
 
 ## Prerequisites
 The original Anachronox models are stored in anoxdata\MODELS.dat, as found in the installed game folder.
